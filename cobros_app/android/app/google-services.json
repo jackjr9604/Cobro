@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "857007919036",
+    "project_id": "cliq-f3d88",
+    "storage_bucket": "cliq-f3d88.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:857007919036:android:f35c04ac3fa8464d95a5b9",
+        "android_client_info": {
+          "package_name": "com.example.cobros_app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "857007919036-v8qoje0dt5rintn39tsdfcemurjummap.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyALEhrQaUE6yMW_0EnA_Lbf4nwhdzt568E"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "857007919036-v8qoje0dt5rintn39tsdfcemurjummap.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "857007919036-2944sus9occ9uqnno3lh2ofu1egq56a8.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.cobrosApp"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

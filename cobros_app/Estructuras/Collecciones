@@ -1,0 +1,76 @@
+🔁 COLECCIONES NECESARIAS Y SU ESTRUCTURA
+1. 🔐 users (usuarios del sistema)
+
+    Cada usuario autenticado debe tener un documento con su UID como ID.
+
+    Este documento es clave porque se usa en getUsuarioActual() para validar su rol.
+
+🧾 Ejemplo de documento:
+
+Ruta: /users/tBXNCb3FG2V5zBqT8jzUJJpbdmH3
+
+{
+  "email": "pm.199512@gmail.com",
+  "role": "admin", // puede ser: "admin", "owner", "collector"
+  "officeId": "oficina_001", // requerido para owner y collector
+  "displayName": "Pedro Martínez",
+  "photoUrl": "https://...opcional.jpg"
+}
+
+2. 🧍‍♂️ clientes
+
+    Documentos que representan los clientes de cada oficina.
+
+    Cada documento debe incluir a qué oficina pertenece.
+
+🧾 Ejemplo:
+
+Ruta: /clientes/cliente_001
+
+{
+  "nombre": "Juan López",
+  "telefono": "3001234567",
+  "direccion": "Calle 123",
+  "officeId": "oficina_001" // importante para filtrar por oficina
+}
+
+3. 💵 cobros
+
+    Cobros realizados por cobradores.
+
+    Los cobradores solo pueden crear documentos con su officeId.
+
+🧾 Ejemplo:
+
+Ruta: /cobros/cobro_001
+
+{
+  "clienteId": "cliente_001",
+  "fecha": "2025-05-05T10:00:00.000Z",
+  "monto": 50000,
+  "officeId": "oficina_001",
+  "collectorId": "tBXNCb3FG2V5zBqT8jzUJJpbdmH3"
+}
+
+4. 🏢 offices
+
+    Lista de oficinas del sistema. Usada por admin para gestión.
+
+🧾 Ejemplo:
+
+Ruta: /offices/oficina_001
+
+{
+  "nombre": "Oficina Norte",
+  "direccion": "Carrera 45 #12-34",
+  "telefono": "6011234567"
+}
+
+🛑 IMPORTANTE
+
+Para que las reglas funcionen:
+Campo	Requerido en	Notas
+role	/users/{userId}	"admin", "owner" o "collector"
+officeId	/users, /clientes, /cobros	Siempre que no sea admin
+monto	/cobros	Debe ser > 0
+uid	ID del doc en /users	Debe coincidir con request.auth.uid

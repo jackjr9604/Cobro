@@ -1,0 +1,10 @@
+^C:\USERS\PM199\ONEDRIVE\DOCUMENTOS\PROGRAMACION\BUILD\CMAKEFILES\ACB966B5C3B07720FEC51926C7513405\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/pm199/OneDrive/Documentos/programacion/AP/cobros_app/linux -BC:/Users/pm199/OneDrive/Documentos/programacion/build --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file C:/Users/pm199/OneDrive/Documentos/programacion/build/Project.sln
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
