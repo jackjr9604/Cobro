@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
-import '../../services/auth_service.dart';
+import '../../../services/auth_service.dart';
 
 class CollectorHomeScreen extends StatefulWidget {
   const CollectorHomeScreen({super.key});
@@ -44,12 +44,7 @@ class _CollectorHomeScreenState extends State<CollectorHomeScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Mis Cobros'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadOfficeData,
-          ),
-        ],
+        actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: _loadOfficeData)],
       ),
       body:
           _isLoading
@@ -83,15 +78,10 @@ class _CollectorHomeScreenState extends State<CollectorHomeScreen> {
                         FirebaseFirestore.instance
                             .collection('payments')
                             .where('officeId', isEqualTo: _officeId)
-                            .where(
-                              'collectorId',
-                              isEqualTo: _authService.currentUser?.uid,
-                            )
+                            .where('collectorId', isEqualTo: _authService.currentUser?.uid)
                             .where(
                               'date',
-                              isEqualTo: DateFormat(
-                                'yyyy-MM-dd',
-                              ).format(DateTime.now()),
+                              isEqualTo: DateFormat('yyyy-MM-dd').format(DateTime.now()),
                             )
                             .snapshots(),
                     builder: (context, snapshot) {
@@ -107,14 +97,8 @@ class _CollectorHomeScreenState extends State<CollectorHomeScreen> {
                       return Row(
                         mainAxisAlignment: MainAxisAlignment.spaceAround,
                         children: [
-                          _buildSummaryItem(
-                            'Cobros',
-                            snapshot.data!.docs.length.toString(),
-                          ),
-                          _buildSummaryItem(
-                            'Total',
-                            '\$${total.toStringAsFixed(2)}',
-                          ),
+                          _buildSummaryItem('Cobros', snapshot.data!.docs.length.toString()),
+                          _buildSummaryItem('Total', '\$${total.toStringAsFixed(2)}'),
                         ],
                       );
                     },
@@ -147,10 +131,7 @@ class _CollectorHomeScreenState extends State<CollectorHomeScreen> {
     return Column(
       children: [
         Text(label, style: const TextStyle(fontSize: 14, color: Colors.grey)),
-        Text(
-          value,
-          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-        ),
+        Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
       ],
     );
   }
@@ -185,9 +166,7 @@ class _CollectorHomeScreenState extends State<CollectorHomeScreen> {
               margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
               child: ListTile(
                 title: Text(payment['clientName']),
-                subtitle: Text(
-                  DateFormat('dd/MM/yyyy').format(payment['date'].toDate()),
-                ),
+                subtitle: Text(DateFormat('dd/MM/yyyy').format(payment['date'].toDate())),
                 trailing: Text(
                   '\$${payment['amount'].toStringAsFixed(2)}',
                   style: const TextStyle(fontWeight: FontWeight.bold),

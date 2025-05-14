@@ -1,6 +1,6 @@
 ^C:\USERS\PM199\ONEDRIVE\DOCUMENTOS\PROGRAMACION\AP\COBROS_APP\LINUX\CMAKELISTS.TXT
 setlocal
-"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/pm199/OneDrive/Documentos/programacion/AP/cobros_app/linux -BC:/Users/pm199/OneDrive/Documentos/programacion/build --check-stamp-file C:/Users/pm199/OneDrive/Documentos/programacion/build/CMakeFiles/generate.stamp
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/pm199/OneDrive/Documentos/programacion/AP/cobros_app/linux -BC:/Users/pm199/OneDrive/Documentos/programacion/AP/build --check-stamp-file C:/Users/pm199/OneDrive/Documentos/programacion/AP/build/CMakeFiles/generate.stamp
 if %errorlevel% neq 0 goto :cmEnd
 :cmEnd
 endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone

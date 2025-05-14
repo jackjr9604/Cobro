@@ -1,24 +1,22 @@
-import 'package:cobros_app/screens/admin/offices_screen.dart';
-import 'package:cobros_app/screens/admin/users_screen.dart';
+import 'package:cobros_app/screens/roles/admin/offices_screen.dart';
+import 'package:cobros_app/screens/roles/admin/users_screen.dart';
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../services/user_service.dart';
 import 'home_screen.dart';
 import 'cobros_screen.dart';
 import 'clientes_screen.dart';
-import 'admin/admin_home_screen.dart'; // Importación corregida
+import 'roles/admin/admin_home_screen.dart'; // Importación corregida
 import '../utils/responsive.dart';
-import 'owner/Register_Collector.dart';
-import 'collector/collector_home_screen.dart';
-import '../screens/owner/office.dart';
+import 'roles/owner/Register_Collector.dart';
+import 'roles/collector/collector_home_screen.dart';
+import 'roles/owner/office.dart';
+import 'clients/clients_Screen.dart';
 
 class MainScreen extends StatefulWidget {
   final String userRole; // Añade este parámetro
 
-  const MainScreen({
-    super.key,
-    required this.userRole,
-  }); // Actualiza el constructor
+  const MainScreen({super.key, required this.userRole}); // Actualiza el constructor
 
   @override
   State<MainScreen> createState() => _MainScreenState();
@@ -57,21 +55,17 @@ class _MainScreenState extends State<MainScreen> {
 
     switch (_currentUserData?['role']) {
       case 'admin':
-        return [
-          const AdminHomeScreen(),
-          const UsersScreen(),
-          const OfficesScreen(),
-        ];
+        return [const AdminHomeScreen(), const UsersScreen(), const OfficesScreen()];
       case 'owner':
         return [
           const HomeScreen(),
           const OfficeManagementScreen(),
           const RegisterCollector(),
-          const ClientesScreen(),
+          const ClientsScreen(),
           const CobrosScreen(),
         ];
       case 'collector':
-        return [const CollectorHomeScreen(), const CobrosScreen()];
+        return [const CollectorHomeScreen(), const ClientsScreen(), const CobrosScreen()];
       default:
         return [const HomeScreen()];
     }
@@ -142,10 +136,17 @@ class _MainScreenState extends State<MainScreen> {
       menuItems.addAll([
         ListTile(
           leading: const Icon(Icons.payment),
-          title: const Text('Cobros'),
-          selected: _selectedIndex == 3,
+          title: const Text('Clientes'),
+          selected: _selectedIndex == 1,
           selectedTileColor: Colors.blue[100],
-          onTap: () => _updateIndex(3, context),
+          onTap: () => _updateIndex(1, context),
+        ),
+        ListTile(
+          leading: const Icon(Icons.payment),
+          title: const Text('Cobros'),
+          selected: _selectedIndex == 2,
+          selectedTileColor: Colors.blue[100],
+          onTap: () => _updateIndex(2, context),
         ),
       ]);
     }
@@ -260,12 +261,7 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Widget _buildDrawer(BuildContext context) {
-    return Drawer(
-      child: ListView(
-        padding: EdgeInsets.zero,
-        children: _getMenuItems(context),
-      ),
-    );
+    return Drawer(child: ListView(padding: EdgeInsets.zero, children: _getMenuItems(context)));
   }
 
   Widget _buildDesktopMenu(BuildContext context) {

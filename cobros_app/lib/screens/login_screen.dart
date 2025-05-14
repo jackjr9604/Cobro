@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
-import '../screens/register_screen.dart';
 import 'main_screen.dart';
 import '../services/user_service.dart';
 

@@ -1,6 +1,5 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../screens/admin/users_screen.dart';
 
 class UserService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -57,9 +56,7 @@ class UserService {
               .get(); //Accede a la colección users en Firestore y busca el documento con el mismo uid del usuario autenticado.
 
       if (!doc.exists) {
-        print(
-          'Documento de usuario no existe',
-        ); //Verificar existencia del documento
+        print('Documento de usuario no existe'); //Verificar existencia del documento
         return null;
       }
 

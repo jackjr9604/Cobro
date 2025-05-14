@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:sqflite/sqflite.dart'; // Importación de sqflite
-import 'package:path_provider/path_provider.dart'; // Para getDatabasesPath
 import 'dart:io'; // Para Directory
 import 'firebase_options.dart';
 import 'screens/login_screen.dart';
@@ -31,9 +30,7 @@ Future<void> main() async {
 
   // 3. Inicialización de Firebase
   try {
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
     print('Firebase inicializado correctamente');
   } catch (e) {
     print('Error al inicializar Firebase: $e');
