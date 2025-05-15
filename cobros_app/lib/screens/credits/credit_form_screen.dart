@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 import 'package:intl/intl.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class CreateCreditScreen extends StatefulWidget {
   final String clientId;
@@ -17,50 +18,73 @@ class _CreateCreditScreenState extends State<CreateCreditScreen> {
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _creditController = TextEditingController();
   final TextEditingController _interestController = TextEditingController();
-  final TextEditingController _daysController = TextEditingController();
+  final TextEditingController _cuotController = TextEditingController();
+
   String _method = 'Diario';
+  String? _selectedDay;
 
   double get _credit => double.tryParse(_creditController.text) ?? 0.0;
   double get _interestPercent => double.tryParse(_interestController.text) ?? 0.0;
-  int get _days => int.tryParse(_daysController.text) ?? 1;
+  int get _cuot => int.tryParse(_cuotController.text) ?? 1;
 
   double get _interest => _credit * (_interestPercent / 100);
   double get _total => _credit + _interest;
-  double get _installment {
-    switch (_method) {
-      case 'Semanal':
-        return _total / (_days / 7);
-      case 'Quincenal':
-        return _total / (_days / 15);
-      case 'Mensual':
-        return _total / (_days / 30);
-      default:
-        return _total / _days;
-    }
-  }
+  double get _installment => _total / (_cuot > 0 ? _cuot : 1);
+
+  final List<String> _daysOfWeek = [
+    'Lunes',
+    'Martes',
+    'Miércoles',
+    'Jueves',
+    'Viernes',
+    'Sábado',
+    'Domingo',
+  ];
 
   Future<void> _saveCredit() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final docId = '${widget.clientId}_${const Uuid().v4().substring(0, 10)}';
-    final uid =
-        FirebaseFirestore
-            .instance
-            .app
-            .options
-            .projectId; // Reemplazar por el UID real del usuario logueado
+    if (_method == 'Semanal' && (_selectedDay == null || _selectedDay!.isEmpty)) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Por favor, selecciona un día de la semana')));
+      return;
+    }
 
-    await FirebaseFirestore.instance.collection('credits').doc(docId).set({
+    // Obtener el UID del cobrador desde el cliente
+    final clientDoc =
+        await FirebaseFirestore.instance.collection('clients').doc(widget.clientId).get();
+
+    final clientData = clientDoc.data();
+    if (clientData == null || !clientData.containsKey('createdBy')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Error: el cliente no tiene un creador asignado')),
+      );
+      return;
+    }
+
+    final clientCreatorUid = clientData['createdBy'];
+
+    final docId = '${widget.clientId}_${const Uuid().v4().substring(0, 10)}';
+
+    Map<String, dynamic> dataToSave = {
       'clientId': widget.clientId,
       'officeId': widget.officeId,
-      'createdBy': uid,
+      'createdBy': clientCreatorUid,
       'createdAt': Timestamp.now(),
       'credit': _credit,
       'interest': _interestPercent,
       'method': _method,
-      'days': _days,
+      'cuot': _cuot,
       'isActive': true,
-    });
+    };
+
+    // Agregar el campo 'day' solo si es método semanal
+    if (_method == 'Semanal') {
+      dataToSave['day'] = _selectedDay;
+    }
+
+    await FirebaseFirestore.instance.collection('credits').doc(docId).set(dataToSave);
 
     if (mounted) Navigator.pop(context);
   }
@@ -97,31 +121,61 @@ class _CreateCreditScreenState extends State<CreateCreditScreen> {
                   DropdownMenuItem(value: 'Quincenal', child: Text('Quincenal')),
                   DropdownMenuItem(value: 'Mensual', child: Text('Mensual')),
                 ],
-                onChanged: (value) => setState(() => _method = value!),
+                onChanged:
+                    (value) => setState(() {
+                      _method = value!;
+                      if (_method != 'Semanal') _selectedDay = null;
+                    }),
                 decoration: const InputDecoration(labelText: 'Forma de pago'),
               ),
               TextFormField(
-                controller: _daysController,
-                decoration: const InputDecoration(labelText: 'Número de días'),
+                controller: _cuotController,
+                decoration: const InputDecoration(labelText: 'Número de cuotas'),
                 keyboardType: TextInputType.number,
-                validator: (value) => value!.isEmpty ? 'Campo requerido' : null,
+                validator: (value) {
+                  if (value == null || value.isEmpty) return 'Campo requerido';
+                  if (int.tryParse(value) == null || int.parse(value) <= 0) {
+                    return 'Ingrese un número válido mayor a 0';
+                  }
+                  return null;
+                },
                 onChanged: (_) => setState(() {}),
               ),
+
+              if (_method == 'Semanal') ...[
+                const SizedBox(height: 16),
+                DropdownButtonFormField<String>(
+                  value: _selectedDay,
+                  decoration: const InputDecoration(labelText: 'Día de la semana'),
+                  items:
+                      _daysOfWeek
+                          .map((day) => DropdownMenuItem(value: day, child: Text(day)))
+                          .toList(),
+                  onChanged: (value) => setState(() => _selectedDay = value),
+                  validator: (value) {
+                    if (_method == 'Semanal' && (value == null || value.isEmpty)) {
+                      return 'Por favor, selecciona un día de la semana';
+                    }
+                    return null;
+                  },
+                ),
+              ],
+
               const SizedBox(height: 20),
 
               const Divider(),
               ListTile(
-                title: Text('Interés'),
+                title: const Text('Interés'),
                 trailing: Text('\$${NumberFormat('#,##0', 'es_CO').format(_interest)}'),
                 dense: true,
               ),
               ListTile(
-                title: Text('Saldo total'),
+                title: const Text('Saldo total'),
                 trailing: Text('\$${NumberFormat('#,##0', 'es_CO').format(_total)}'),
                 dense: true,
               ),
               ListTile(
-                title: Text('Valor de la cuota'),
+                title: const Text('Valor de la cuota'),
                 trailing: Text('\$${NumberFormat('#,##0', 'es_CO').format(_installment)}'),
                 dense: true,
               ),

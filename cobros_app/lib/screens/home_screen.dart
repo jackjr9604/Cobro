@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../utils/responsive.dart'; // Importamos nuestro helper de responsividad
-import 'cobros_screen.dart';
+import 'pays/cobros_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -30,14 +30,8 @@ class HomeScreen extends StatelessWidget {
               color: Colors.white,
               borderRadius: BorderRadius.circular(20),
               boxShadow: [
-                if (!Responsive.isMobile(
-                  context,
-                )) // Sombra solo en pantallas grandes
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.1),
-                    blurRadius: 10,
-                    spreadRadius: 5,
-                  ),
+                if (!Responsive.isMobile(context)) // Sombra solo en pantallas grandes
+                  BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10, spreadRadius: 5),
               ],
             ),
             child: Column(
@@ -45,11 +39,7 @@ class HomeScreen extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 // Ícono principal (tamaño responsivo)
-                Icon(
-                  Icons.home,
-                  size: iconSize,
-                  color: Theme.of(context).primaryColor,
-                ),
+                Icon(Icons.home, size: iconSize, color: Theme.of(context).primaryColor),
 
                 // Espaciado vertical responsivo
                 SizedBox(height: verticalSpacing),
@@ -78,52 +68,21 @@ class HomeScreen extends StatelessWidget {
                 SizedBox(height: verticalSpacing * 1.5),
 
                 // Botón principal (ancho responsivo)
-                SizedBox(
-                  width: buttonWidth,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const CobrosScreen(),
-                        ),
-                      );
-                    },
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 15),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                    child: const Text(
-                      'Nuevo Cobro',
-                      style: TextStyle(fontSize: 18),
-                    ),
-                  ),
-                ),
+                SizedBox(width: buttonWidth),
 
                 // Espacio adicional en pantallas grandes
                 if (!Responsive.isMobile(context)) const SizedBox(height: 40),
 
                 // Sección adicional para tablets/desktop
-                if (Responsive.isTablet(context) ||
-                    Responsive.isDesktop(context))
+                if (Responsive.isTablet(context) || Responsive.isDesktop(context))
                   Padding(
                     padding: const EdgeInsets.only(top: 30),
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
-                        _buildFeatureItem(
-                          context,
-                          Icons.show_chart,
-                          'Estadísticas',
-                        ),
+                        _buildFeatureItem(context, Icons.show_chart, 'Estadísticas'),
                         _buildFeatureItem(context, Icons.history, 'Historial'),
-                        _buildFeatureItem(
-                          context,
-                          Icons.settings,
-                          'Configuración',
-                        ),
+                        _buildFeatureItem(context, Icons.settings, 'Configuración'),
                       ],
                     ),
                   ),
@@ -148,10 +107,7 @@ class HomeScreen extends StatelessWidget {
           child: Icon(icon, size: 30, color: Theme.of(context).primaryColor),
         ),
         const SizedBox(height: 8),
-        Text(
-          text,
-          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-        ),
+        Text(text, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
       ],
     );
   }

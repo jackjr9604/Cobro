@@ -8,6 +8,7 @@ import 'screens/login_screen.dart';
 import 'screens/main_screen.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'services/user_service.dart';
+import 'package:intl/date_symbol_data_local.dart';
 
 Future<void> main() async {
   // 0. Inicializar sqflite_common_ffi para desktop
@@ -36,7 +37,7 @@ Future<void> main() async {
     print('Error al inicializar Firebase: $e');
     // Puedes decidir si quieres continuar sin Firebase o terminar la app
   }
-
+  await initializeDateFormatting('es_CO', null); // <- Aquí el idioma local
   // 4. Ejecutar la aplicación
   runApp(const AuthWrapper());
 }
