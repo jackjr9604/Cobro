@@ -79,12 +79,37 @@ class _CreateCreditScreenState extends State<CreateCreditScreen> {
       'isActive': true,
     };
 
-    // Agregar el campo 'day' solo si es método semanal
     if (_method == 'Semanal') {
       dataToSave['day'] = _selectedDay;
     }
 
+    // Guardar el crédito
     await FirebaseFirestore.instance.collection('credits').doc(docId).set(dataToSave);
+
+    // Obtener todos los créditos actuales del cliente
+    final clientCreditsSnapshot =
+        await FirebaseFirestore.instance
+            .collection('credits')
+            .where('clientId', isEqualTo: widget.clientId)
+            .get();
+
+    // El número consecutivo será la cantidad de créditos + 1 (porque este aún no cuenta si se consulta antes)
+    final creditNumber = clientCreditsSnapshot.docs.length;
+
+    // Crear el Map a agregar al documento del cliente
+    final creditMap = {
+      'credit#': creditNumber,
+      'credit': _credit,
+      'interest': _interestPercent,
+      'method': _method,
+      'createdAt': Timestamp.now(),
+      'creditId': docId,
+    };
+
+    // Actualizar el documento del cliente con un nuevo campo con ID del crédito
+    await FirebaseFirestore.instance.collection('clients').doc(widget.clientId).update({
+      docId: creditMap,
+    });
 
     if (mounted) Navigator.pop(context);
   }

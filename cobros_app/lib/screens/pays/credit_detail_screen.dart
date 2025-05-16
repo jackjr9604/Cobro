@@ -93,7 +93,7 @@ class CreditDetailScreen extends StatelessWidget {
                   children: [
                     Text('📋 Datos del Cliente', style: Theme.of(context).textTheme.titleMedium),
                     const SizedBox(height: 8),
-                    Text('Nombre: ${client['name']}'),
+                    Text('Nombre: ${client['clientName']}'),
                     Text('Celular: ${client['cellphone']}'),
                     if (client['ref'] != null) Text('Ref/Alias: ${client['ref']}'),
                     if (client['address'] != null) Text('Dirección: ${client['address']}'),

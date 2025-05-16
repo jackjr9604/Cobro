@@ -88,6 +88,24 @@ class ClientsScreen extends StatelessWidget {
     return userDoc.data()?['displayName'] ?? '';
   }
 
+  Map<String, dynamic>? getLatestCreditInfo(Map<String, dynamic> data) {
+    int maxCreditNumber = -1;
+    Map<String, dynamic>? latestCredit;
+
+    for (final entry in data.entries) {
+      final value = entry.value;
+      if (value is Map<String, dynamic> && value.containsKey('credit#')) {
+        final creditNum = value['credit#'];
+        if (creditNum is int && creditNum > maxCreditNumber) {
+          maxCreditNumber = creditNum;
+          latestCredit = value;
+        }
+      }
+    }
+
+    return latestCredit;
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = FirebaseAuth.instance.currentUser;
@@ -116,6 +134,7 @@ class ClientsScreen extends StatelessWidget {
                   final updatedAt = formatTimestamp(data['updatedAt']);
                   final createdByUid = data['createdBy'] ?? '';
                   final currentUser = FirebaseAuth.instance.currentUser!;
+                  final latestCredit = getLatestCreditInfo(data);
 
                   return FutureBuilder(
                     future:
@@ -169,6 +188,14 @@ class ClientsScreen extends StatelessWidget {
                                     if (updatedAt.isNotEmpty)
                                       Text('Última actualización: $updatedAt'),
                                   ],
+                                  if (latestCredit != null) ...[
+                                    const SizedBox(height: 8),
+                                    const Text('Último crédito:'),
+                                    Text('Crédito #: ${latestCredit['credit#']}'),
+                                    Text('Valor: ${latestCredit['credit']}'),
+                                    if (latestCredit['createdAt'] is Timestamp)
+                                      Text('Fecha: ${formatTimestamp(latestCredit['createdAt'])}'),
+                                  ],
                                 ],
                               ),
                               trailing: Row(
@@ -190,7 +217,6 @@ class ClientsScreen extends StatelessWidget {
                                       );
                                     },
                                   ),
-
                                   IconButton(
                                     icon: const Icon(Icons.edit),
                                     onPressed: () {

@@ -2,8 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'credit_detail_screen.dart';
-import '../pays/inactive_credits_screen.dart';
+import 'CreditDetailScreen.dart';
 
 class CobrosScreen extends StatefulWidget {
   const CobrosScreen({super.key});
@@ -34,120 +33,71 @@ class _CobrosScreenState extends State<CobrosScreen> {
 
     final interest = credit * interestPercent / 100;
     final total = credit + interest;
+
     final cuotaSugerida = total / cuot;
 
     final controller = TextEditingController(text: cuotaSugerida.toStringAsFixed(0));
+
     final totalAbonado = _sumActivePayments(data);
     final saldoRestante = total - totalAbonado;
-
-    DateTime selectedDate = DateTime.now();
 
     await showDialog(
       context: context,
       builder:
-          (context) => StatefulBuilder(
-            builder: (context, setState) {
-              return AlertDialog(
-                title: const Text('Registrar pago'),
-                content: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'Saldo restante: \$${NumberFormat('#,##0', 'es_CO').format(saldoRestante)}',
-                    ),
-                    TextField(
-                      controller: controller,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: 'Valor del abono'),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        ElevatedButton(
-                          onPressed:
-                              () => setState(() {
-                                selectedDate = DateTime.now();
-                              }),
-                          child: const Text('Hoy'),
-                        ),
-                        ElevatedButton(
-                          onPressed:
-                              () => setState(() {
-                                selectedDate = DateTime.now().add(const Duration(days: 1));
-                              }),
-                          child: const Text('Mañana'),
-                        ),
-                        IconButton(
-                          tooltip: 'Seleccionar fecha',
-                          icon: const Icon(Icons.calendar_today),
-                          onPressed: () async {
-                            final picked = await showDatePicker(
-                              context: context,
-                              initialDate: selectedDate,
-                              firstDate: DateTime(2020),
-                              lastDate: DateTime(2100),
-                            );
-                            if (picked != null) {
-                              setState(() {
-                                selectedDate = picked;
-                              });
-                            }
-                          },
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text('Fecha seleccionada: ${DateFormat('yyyy-MM-dd').format(selectedDate)}'),
-                  ],
+          (context) => AlertDialog(
+            title: const Text('Registrar pago'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Saldo restante: \$${NumberFormat('#,##0', 'es_CO').format(saldoRestante)}'),
+                TextField(
+                  controller: controller,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Valor del abono'),
                 ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('Cancelar'),
-                  ),
-                  TextButton(
-                    onPressed: () async {
-                      final valor = int.tryParse(controller.text);
-                      if (valor == null || valor <= 0) {
-                        ScaffoldMessenger.of(
-                          context,
-                        ).showSnackBar(const SnackBar(content: Text('Valor inválido')));
-                        return;
-                      }
-                      if (valor > saldoRestante) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('El pago excede el saldo restante')),
-                        );
-                        return;
-                      }
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Cancelar'),
+              ),
+              TextButton(
+                onPressed: () async {
+                  final valor = int.tryParse(controller.text);
+                  if (valor == null || valor <= 0) {
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(const SnackBar(content: Text('Valor inválido')));
+                    return;
+                  }
+                  if (valor > saldoRestante) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('El pago excede el saldo restante')),
+                    );
+                    return;
+                  }
 
-                      final creditRef = FirebaseFirestore.instance.collection('credits').doc(docId);
-                      final creditSnapshot = await creditRef.get();
-                      final existingData = creditSnapshot.data() ?? {};
+                  final creditRef = FirebaseFirestore.instance.collection('credits').doc(docId);
+                  final creditSnapshot = await creditRef.get();
+                  final existingData = creditSnapshot.data() ?? {};
 
-                      final pays = existingData.keys.where((key) => key.startsWith('pay')).toList();
-                      final nextPayNumber = pays.length + 1;
-                      final payField = 'pay$nextPayNumber';
+                  final pays = existingData.keys.where((key) => key.startsWith('pay')).toList();
+                  final nextPayNumber = pays.length + 1;
+                  final payField = 'pay$nextPayNumber';
 
-                      await creditRef.update({
-                        payField: {
-                          'amount': valor,
-                          'date': Timestamp.fromDate(selectedDate),
-                          'isActive': true,
-                        },
-                      });
+                  await creditRef.update({
+                    payField: {'amount': valor, 'date': Timestamp.now(), 'isActive': true},
+                  });
 
-                      Navigator.of(context).pop();
-                      ScaffoldMessenger.of(
-                        context,
-                      ).showSnackBar(const SnackBar(content: Text('Pago registrado exitosamente')));
-                    },
-                    child: const Text('Guardar'),
-                  ),
-                ],
-              );
-            },
+                  Navigator.of(context).pop();
+                  ScaffoldMessenger.of(
+                    context,
+                  ).showSnackBar(const SnackBar(content: Text('Pago registrado exitosamente')));
+                },
+                child: const Text('Guardar'),
+              ),
+            ],
           ),
     );
   }
@@ -155,46 +105,7 @@ class _CobrosScreenState extends State<CobrosScreen> {
   Future<void> _closeCredit(DocumentSnapshot creditDoc) async {
     final docId = creditDoc.id;
     final creditRef = FirebaseFirestore.instance.collection('credits').doc(docId);
-
-    // Actualiza el crédito como cerrado
-    await creditRef.update({
-      'isActive': false,
-      'paid': Timestamp.now(), // fecha y hora del cierre
-    });
-
-    // Obtener el clientId para actualizar el cliente
-    final creditData = creditDoc.data() as Map<String, dynamic>;
-    final clientId = creditData['clientId'];
-
-    if (clientId != null) {
-      final clientRef = FirebaseFirestore.instance.collection('clients').doc(clientId);
-
-      // Campo con la key del crédito que se está cerrando y se añade 'paidAt'
-      final String creditFieldKey = docId;
-
-      // La fecha actual para paidAt
-      final Timestamp paidAtTimestamp = Timestamp.now();
-
-      // Usar FieldValue para actualizar solo el campo dentro del map
-      await clientRef.update({'$creditFieldKey.paidAt': paidAtTimestamp});
-    }
-
-    // Luego, actualizar el orden y los controladores localmente
-    setState(() {
-      orderMap.remove(docId);
-      controllers.remove(docId);
-
-      final activeCreditIds = orderMap.keys.toList();
-      activeCreditIds.sort((a, b) => orderMap[a]!.compareTo(orderMap[b]!));
-
-      for (int i = 0; i < activeCreditIds.length; i++) {
-        final id = activeCreditIds[i];
-        orderMap[id] = i + 1;
-        if (controllers.containsKey(id)) {
-          controllers[id]!.text = (i + 1).toString();
-        }
-      }
-    });
+    await creditRef.update({'isActive': false});
   }
 
   int _sumActivePayments(Map<String, dynamic> data) {
@@ -222,22 +133,7 @@ class _CobrosScreenState extends State<CobrosScreen> {
     final uid = currentUser.uid;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Mis Créditos Activos'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.history),
-            tooltip: 'Ver créditos inactivos',
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const InactiveCreditsScreen()),
-              );
-            },
-          ),
-        ],
-      ),
-
+      appBar: AppBar(title: const Text('Mis Créditos Activos')),
       body: StreamBuilder<QuerySnapshot>(
         stream:
             FirebaseFirestore.instance
@@ -395,29 +291,13 @@ class _CobrosScreenState extends State<CobrosScreen> {
 
                             if (newOrder != null && newOrder > 0 && newOrder <= credits.length) {
                               setState(() {
-                                final currentOrder = orderMap[id]!;
-                                if (newOrder != currentOrder) {
-                                  if (newOrder < currentOrder) {
-                                    // Subió de posición, desplazar hacia abajo a los que están entre newOrder y currentOrder -1
-                                    orderMap.forEach((key, value) {
-                                      if (value >= newOrder && value < currentOrder) {
-                                        orderMap[key] = value + 1;
-                                        controllers[key]!.text = (value + 1).toString();
-                                      }
-                                    });
-                                  } else {
-                                    // Bajó de posición, desplazar hacia arriba a los que están entre currentOrder + 1 y newOrder
-                                    orderMap.forEach((key, value) {
-                                      if (value <= newOrder && value > currentOrder) {
-                                        orderMap[key] = value - 1;
-                                        controllers[key]!.text = (value - 1).toString();
-                                      }
-                                    });
-                                  }
-                                  // Finalmente, asignar el nuevo orden a la tarjeta movida
-                                  orderMap[id] = newOrder;
-                                  controllers[id]!.text = newOrder.toString();
-                                }
+                                final current = orderMap[id]!;
+                                final swappedId =
+                                    orderMap.entries.firstWhere((e) => e.value == newOrder).key;
+                                orderMap[swappedId] = current;
+                                orderMap[id] = newOrder;
+                                controllers[swappedId]!.text = current.toString();
+                                controllers[id]!.text = newOrder.toString();
                               });
                             }
                           },
