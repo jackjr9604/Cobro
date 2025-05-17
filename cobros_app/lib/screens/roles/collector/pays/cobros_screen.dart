@@ -3,7 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'credit_detail_screen.dart';
-import '../pays/inactive_credits_screen.dart';
+import 'inactive_credits_screen.dart';
 
 class CobrosScreen extends StatefulWidget {
   const CobrosScreen({super.key});

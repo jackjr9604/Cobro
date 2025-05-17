@@ -2,7 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../pays/credit_inactive_detail_screen.dart';
+import 'credit_inactive_detail_screen.dart';
 
 class InactiveCreditsScreen extends StatefulWidget {
   const InactiveCreditsScreen({super.key});

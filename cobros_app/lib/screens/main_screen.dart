@@ -4,13 +4,14 @@ import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../services/user_service.dart';
 import 'home_screen.dart';
-import 'pays/cobros_screen.dart';
+import 'roles/collector/pays/cobros_screen.dart';
 import 'roles/admin/admin_home_screen.dart'; // Importación corregida
 import '../utils/responsive.dart';
 import 'roles/owner/Register_Collector.dart';
 import 'roles/collector/collector_home_screen.dart';
 import 'roles/owner/office.dart';
 import 'clients/clients_Screen.dart';
+import '../screens/roles/owner/routes/routes_screen.dart';
 
 class MainScreen extends StatefulWidget {
   final String userRole; // Añade este parámetro
@@ -61,7 +62,7 @@ class _MainScreenState extends State<MainScreen> {
           const OfficeManagementScreen(),
           const RegisterCollector(),
           const ClientsScreen(),
-          const CobrosScreen(),
+          const RoutesScreen(),
         ];
       case 'collector':
         return [const CollectorHomeScreen(), const ClientsScreen(), const CobrosScreen()];
