@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../routes/pays_details.dart';
+import '../routes/Collector_Settlement_Screen.dart';
 
 class CreditsRoutesScreen extends StatelessWidget {
   final String collectorId;
@@ -69,25 +71,43 @@ class CreditsRoutesScreen extends StatelessWidget {
                     margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     child: Padding(
                       padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Cliente: $clientName',
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                          const SizedBox(height: 4),
-                          Text('Préstamo: \$${credit.toStringAsFixed(2)}'),
-                          Text('Interés: ${interest.toStringAsFixed(2)}%'),
-                          Text('Total crédito: \$${totalCredit.toStringAsFixed(2)}'),
-                          Text('Forma de pago: $method'),
-                          Text('Cuotas: $cout'),
-                          Text('Valor de cuota: \$${paymentValue.toStringAsFixed(2)}'),
-                          const SizedBox(height: 4),
-                          Text('Abonos realizados: $paymentsCount'),
-                          Text('Total abonado: \$${totalPaid.toStringAsFixed(2)}'),
-                          Text('faltante: \$${restPay.toStringAsFixed(2)}'),
-                        ],
+                      child: ListTile(
+                        title: Text(
+                          'Cliente: $clientName',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const SizedBox(height: 4),
+                            Text('Préstamo: \$${credit.toStringAsFixed(2)}'),
+                            Text('Interés: ${interest.toStringAsFixed(2)}%'),
+                            Text('Total crédito: \$${totalCredit.toStringAsFixed(2)}'),
+                            Text('Forma de pago: $method'),
+                            Text('Cuotas: $cout'),
+                            Text('Valor de cuota: \$${paymentValue.toStringAsFixed(2)}'),
+                            const SizedBox(height: 4),
+                            Text('Abonos realizados: $paymentsCount'),
+                            Text('Total abonado: \$${totalPaid.toStringAsFixed(2)}'),
+                            Text('faltante: \$${restPay.toStringAsFixed(2)}'),
+                          ],
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.article),
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => PaysDetails(credit: creditDoc),
+                                  ),
+                                );
+                              },
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   );
@@ -96,6 +116,22 @@ class CreditsRoutesScreen extends StatelessWidget {
             },
           );
         },
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder:
+                  (context) => CollectorLiquidationScreen(
+                    collectorId: collectorId,
+                    collectorName: collectorName,
+                  ),
+            ),
+          );
+        },
+        icon: const Icon(Icons.monetization_on),
+        label: const Text('Liquidar'),
       ),
     );
   }

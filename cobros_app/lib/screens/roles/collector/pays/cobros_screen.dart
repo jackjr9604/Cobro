@@ -16,6 +16,18 @@ class _CobrosScreenState extends State<CobrosScreen> {
   final Map<String, int> orderMap = {};
   final Map<String, TextEditingController> controllers = {};
 
+  bool _allPaymentsInactive(Map<String, dynamic> data) {
+    for (var entry in data.entries) {
+      if (entry.key.startsWith('pay') && entry.value is Map<String, dynamic>) {
+        final isActive = entry.value['isActive'];
+        if (isActive == true) {
+          return false; // Hay al menos un pago activo
+        }
+      }
+    }
+    return true; // Todos los pagos están inactivos o no hay pagos
+  }
+
   @override
   void dispose() {
     for (final controller in controllers.values) {
@@ -200,7 +212,7 @@ class _CobrosScreenState extends State<CobrosScreen> {
   int _sumActivePayments(Map<String, dynamic> data) {
     int sum = 0;
     data.forEach((key, value) {
-      if (key.startsWith('pay') && value is Map<String, dynamic> && value['isActive'] == true) {
+      if (key.startsWith('pay') && value is Map<String, dynamic>) {
         final amount = value['amount'];
         if (amount is int) {
           sum += amount;
@@ -280,7 +292,7 @@ class _CobrosScreenState extends State<CobrosScreen> {
               final totalAbonado = _sumActivePayments(data);
               final saldoRestante = total - totalAbonado;
 
-              final puedeCerrar = totalAbonado >= total;
+              final puedeCerrar = totalAbonado >= total && _allPaymentsInactive(data);
 
               String? dayDisplay;
               if (data.containsKey('day')) {

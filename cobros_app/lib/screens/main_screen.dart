@@ -11,6 +11,7 @@ import 'roles/owner/Register_Collector.dart';
 import 'roles/collector/collector_home_screen.dart';
 import 'roles/owner/office.dart';
 import 'clients/clients_Screen.dart';
+import '../screens/roles/owner/routes/Local_Report_Screen.dart.dart';
 import '../screens/roles/owner/routes/routes_screen.dart';
 
 class MainScreen extends StatefulWidget {
@@ -63,6 +64,7 @@ class _MainScreenState extends State<MainScreen> {
           const RegisterCollector(),
           const ClientsScreen(),
           const RoutesScreen(),
+          const LiquidationReportScreen(),
         ];
       case 'collector':
         return [const CollectorHomeScreen(), const ClientsScreen(), const CobrosScreen()];
@@ -130,6 +132,13 @@ class _MainScreenState extends State<MainScreen> {
           selected: _selectedIndex == 4,
           selectedTileColor: Colors.blue[100],
           onTap: () => _updateIndex(4, context),
+        ),
+        ListTile(
+          leading: const Icon(Icons.report),
+          title: const Text('Reporte'),
+          selected: _selectedIndex == 5,
+          selectedTileColor: Colors.blue[100],
+          onTap: () => _updateIndex(5, context),
         ),
       ]);
     } else if (_currentUserData?['role'] == 'collector') {
