@@ -1,6 +1,44 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:intl/intl.dart';
+
+import 'package:flutter/services.dart';
+
+// quita los . decimales de los numeros
+int parseFormattedNumber(String text) {
+  final cleaned = text.replaceAll(RegExp(r'[^0-9]'), '');
+  return int.parse(cleaned);
+}
+
+//formateador denumeros con $ y . decimales
+class ThousandsSeparatorInputFormatter extends TextInputFormatter {
+  final NumberFormat formatter = NumberFormat.decimalPattern('es_CO');
+
+  @override
+  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+    // Eliminar todo lo que no sea número (incluye quitar puntos)
+    String numericString = newValue.text.replaceAll(RegExp(r'[^0-9]'), '');
+
+    if (numericString.isEmpty) {
+      return const TextEditingValue(text: '', selection: TextSelection.collapsed(offset: 0));
+    }
+
+    // Parsear a número para luego formatear
+    int number = int.parse(numericString);
+
+    // Formatear con puntos
+    String newText = formatter.format(number);
+
+    // Calcular nueva posición del cursor
+    int offset = newText.length - (oldValue.text.length - oldValue.selection.end);
+
+    if (offset < 0) offset = 0;
+    if (offset > newText.length) offset = newText.length;
+
+    return TextEditingValue(text: newText, selection: TextSelection.collapsed(offset: offset));
+  }
+}
 
 class RegisterCollector extends StatefulWidget {
   const RegisterCollector({super.key});
@@ -21,6 +59,7 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
 
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _nameController = TextEditingController();
+  final TextEditingController _baseController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
 
@@ -36,8 +75,7 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
     final currentUser = _auth.currentUser;
     if (currentUser == null) return;
 
-    final userDoc =
-        await _firestore.collection('users').doc(currentUser.uid).get();
+    final userDoc = await _firestore.collection('users').doc(currentUser.uid).get();
     final data = userDoc.data();
 
     if (data != null &&
@@ -76,13 +114,16 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
     if (!_formKey.currentState!.validate()) return;
 
     final name = _nameController.text.trim();
+    final base = _baseController.text.trim();
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
 
     try {
       final ownerCredential = _auth.currentUser!;
-      final authResult = await FirebaseAuth.instance
-          .createUserWithEmailAndPassword(email: email, password: password);
+      final authResult = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
       final collectorUID = authResult.user!.uid;
 
       await _firestore.collection('users').doc(collectorUID).set({
@@ -103,19 +144,18 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
       setState(() {
         showForm = false;
         _nameController.clear();
+        _baseController.clear();
         _emailController.clear();
         _passwordController.clear();
       });
 
       await loadCollectors();
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Collector registrado correctamente.')),
-      );
-    } catch (e) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Error al registrar: $e')));
+      ).showSnackBar(const SnackBar(content: Text('Collector registrado correctamente.')));
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al registrar: $e')));
     }
   }
 
@@ -146,10 +186,12 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
   Future<void> _updateCollector(
     Map<String, dynamic> collector,
     String newName,
+    int newBase,
     bool newStatus,
   ) async {
     await _firestore.collection('users').doc(collector['uid']).update({
       'displayName': newName,
+      'base': newBase,
       'isActive': newStatus,
       'updateAt': FieldValue.serverTimestamp(),
     });
@@ -164,9 +206,7 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
     if (isLoading) return const Center(child: CircularProgressIndicator());
 
     if (!isOwnerActive || ownerOfficeId == null) {
-      return const Center(
-        child: Text('No tienes permisos para ver esta información.'),
-      );
+      return const Center(child: Text('No tienes permisos para ver esta información.'));
     }
 
     return Scaffold(
@@ -191,37 +231,24 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
                   children: [
                     TextFormField(
                       controller: _nameController,
-                      decoration: const InputDecoration(
-                        labelText: 'Nombre completo',
-                      ),
+                      decoration: const InputDecoration(labelText: 'Nombre completo'),
                       validator:
-                          (value) =>
-                              value == null || value.isEmpty
-                                  ? 'Ingrese un nombre'
-                                  : null,
+                          (value) => value == null || value.isEmpty ? 'Ingrese un nombre' : null,
                     ),
                     TextFormField(
                       controller: _emailController,
-                      decoration: const InputDecoration(
-                        labelText: 'Correo electrónico',
-                      ),
+                      decoration: const InputDecoration(labelText: 'Correo electrónico'),
                       validator:
                           (value) =>
-                              value == null || value.isEmpty
-                                  ? 'Ingrese un correo válido'
-                                  : null,
+                              value == null || value.isEmpty ? 'Ingrese un correo válido' : null,
                     ),
                     TextFormField(
                       controller: _passwordController,
                       obscureText: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Contraseña',
-                      ),
+                      decoration: const InputDecoration(labelText: 'Contraseña'),
                       validator:
                           (value) =>
-                              value == null || value.length < 6
-                                  ? 'Mínimo 6 caracteres'
-                                  : null,
+                              value == null || value.length < 6 ? 'Mínimo 6 caracteres' : null,
                     ),
                     const SizedBox(height: 10),
                     ElevatedButton(
@@ -236,15 +263,18 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
           Expanded(
             child:
                 collectors.isEmpty
-                    ? const Center(
-                      child: Text('No hay cobradores registrados.'),
-                    )
+                    ? const Center(child: Text('No hay cobradores registrados.'))
                     : ListView.builder(
                       itemCount: collectors.length,
                       itemBuilder: (context, index) {
                         final collector = collectors[index];
                         final uid = collector['uid'];
                         final expanded = expandedCards[uid] ?? false;
+                        final number = collector['base'] ?? 0;
+                        final formatter = NumberFormat.decimalPattern('es_CO');
+                        final baseController = TextEditingController(
+                          text: formatter.format(number),
+                        );
                         final nameController = TextEditingController(
                           text: collector['displayName'],
                         );
@@ -253,9 +283,7 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
                           child: Column(
                             children: [
                               ListTile(
-                                title: Text(
-                                  collector['displayName'] ?? 'Sin nombre',
-                                ),
+                                title: Text(collector['displayName'] ?? 'Sin nombre'),
                                 subtitle: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
@@ -270,13 +298,8 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
                                   ],
                                 ),
                                 trailing: Icon(
-                                  collector['isActive'] == true
-                                      ? Icons.check_circle
-                                      : Icons.cancel,
-                                  color:
-                                      collector['isActive'] == true
-                                          ? Colors.green
-                                          : Colors.red,
+                                  collector['isActive'] == true ? Icons.check_circle : Icons.cancel,
+                                  color: collector['isActive'] == true ? Colors.green : Colors.red,
                                 ),
                                 onTap:
                                     () => setState(() {
@@ -285,10 +308,7 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
                               ),
                               if (expanded)
                                 Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                    vertical: 8,
-                                  ),
+                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                                   child: Column(
                                     children: [
                                       TextFormField(
@@ -296,6 +316,15 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
                                         decoration: const InputDecoration(
                                           labelText: 'Editar nombre',
                                         ),
+                                      ),
+                                      TextFormField(
+                                        controller: baseController,
+                                        keyboardType: TextInputType.number,
+                                        decoration: InputDecoration(
+                                          labelText: 'Base',
+                                          prefixText: '\$',
+                                        ),
+                                        inputFormatters: [ThousandsSeparatorInputFormatter()],
                                       ),
                                       SwitchListTile(
                                         title: const Text('Activo'),
@@ -311,6 +340,8 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
                                           await _updateCollector(
                                             collector,
                                             nameController.text.trim(),
+                                            parseFormattedNumber(baseController.text.trim()),
+
                                             collector['isActive'] ?? true,
                                           );
                                         },

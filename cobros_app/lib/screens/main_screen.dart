@@ -11,7 +11,7 @@ import 'roles/owner/Register_Collector.dart';
 import 'roles/collector/collector_home_screen.dart';
 import 'roles/owner/office.dart';
 import 'clients/clients_Screen.dart';
-import '../screens/roles/owner/routes/Local_Report_Screen.dart.dart';
+import 'roles/owner/routes/Liquidation_Report_Screen.dart';
 import '../screens/roles/owner/routes/routes_screen.dart';
 
 class MainScreen extends StatefulWidget {

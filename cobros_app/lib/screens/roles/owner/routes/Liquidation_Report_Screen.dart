@@ -1,6 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+
+bool _isLoading = true;
 
 class LiquidationReportScreen extends StatefulWidget {
   const LiquidationReportScreen({super.key});
@@ -14,18 +17,42 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
   DateTime? selectedDate;
 
   Future<void> _fetchLiquidations() async {
-    Query query = FirebaseFirestore.instance
-        .collection('liquidations')
-        .orderBy('date', descending: true);
-
-    if (selectedDate != null) {
-      final start = DateTime(selectedDate!.year, selectedDate!.month, selectedDate!.day);
-      final end = start.add(const Duration(days: 1));
-      query = query.where('date', isGreaterThanOrEqualTo: start).where('date', isLessThan: end);
+    setState(() => _isLoading = true); // Inicia carga
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      setState(() => _isLoading = false);
+      return;
     }
 
-    final snapshot = await query.get();
-    setState(() => liquidations = snapshot.docs);
+    try {
+      final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      final userData = userDoc.data();
+      if (userData == null || userData['officeId'] == null) {
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      final userOfficeId = userData['officeId'];
+
+      Query query = FirebaseFirestore.instance
+          .collection('liquidations')
+          .where('officeId', isEqualTo: userOfficeId);
+
+      if (selectedDate != null) {
+        final start = DateTime(selectedDate!.year, selectedDate!.month, selectedDate!.day);
+        final end = start.add(const Duration(days: 1));
+        query = query.where('date', isGreaterThanOrEqualTo: start).where('date', isLessThan: end);
+      }
+
+      final snapshot = await query.get();
+      setState(() {
+        liquidations = snapshot.docs;
+        _isLoading = false;
+      });
+    } catch (e) {
+      print('Error al obtener liquidaciones: $e');
+      setState(() => _isLoading = false);
+    }
   }
 
   Future<void> _selectDate() async {
@@ -55,7 +82,9 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
         actions: [IconButton(icon: const Icon(Icons.date_range), onPressed: _selectDate)],
       ),
       body:
-          liquidations.isEmpty
+          _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : liquidations.isEmpty
               ? const Center(child: Text('No hay liquidaciones registradas.'))
               : ListView.builder(
                 itemCount: liquidations.length,

@@ -18,20 +18,31 @@ class CollectorLiquidationScreen extends StatefulWidget {
   State<CollectorLiquidationScreen> createState() => _CollectorLiquidationScreenState();
 }
 
+class _DiscountItem {
+  TextEditingController controller;
+  String type;
+
+  _DiscountItem({required this.controller, required this.type});
+}
+
 class _CollectorLiquidationScreenState extends State<CollectorLiquidationScreen> {
   DateTime? selectedDate;
-  final _discountControllers = List.generate(5, (_) => TextEditingController());
+  List<_DiscountItem> _discountItems = [
+    _DiscountItem(controller: TextEditingController(), type: 'Gasolina'),
+  ];
+
   double totalCollected = 0;
   List<Map<String, dynamic>> paymentsOfDay = [];
   double discountTotal = 0;
   double netTotal = 0;
   String officeId = '';
+  double colletorbase = 0;
 
   @override
   void initState() {
     super.initState();
-    for (var controller in _discountControllers) {
-      controller.addListener(_updateTotals);
+    for (var item in _discountItems) {
+      item.controller.addListener(_updateTotals);
     }
     _getOfficeId();
   }
@@ -42,13 +53,14 @@ class _CollectorLiquidationScreenState extends State<CollectorLiquidationScreen>
     final data = userDoc.data();
     setState(() {
       officeId = data?['officeId'] ?? '';
+      colletorbase = (data?['base'] ?? 0).toDouble();
     });
   }
 
   void _updateTotals() {
     double total = 0;
-    for (var ctrl in _discountControllers) {
-      total += double.tryParse(ctrl.text) ?? 0;
+    for (var item in _discountItems) {
+      total += double.tryParse(item.controller.text) ?? 0;
     }
     setState(() {
       discountTotal = total;
@@ -135,7 +147,10 @@ class _CollectorLiquidationScreenState extends State<CollectorLiquidationScreen>
       'officeId': officeId,
       'date': liquidationDate,
       'totalCollected': totalCollected,
-      'discounts': _discountControllers.map((e) => double.tryParse(e.text) ?? 0).toList(),
+      'discounts': {
+        for (var item in _discountItems) item.type: (double.tryParse(item.controller.text) ?? 0),
+      },
+
       'discountTotal': discountTotal,
       'netTotal': netTotal,
       'payments':
@@ -167,17 +182,18 @@ class _CollectorLiquidationScreenState extends State<CollectorLiquidationScreen>
       totalCollected = 0;
       discountTotal = 0;
       netTotal = 0;
-      for (var ctrl in _discountControllers) {
-        ctrl.clear();
-      }
+      _discountItems = [
+        _DiscountItem(type: 'Gasolina', controller: TextEditingController())
+          ..controller.addListener(_updateTotals),
+      ];
     });
   }
 
   @override
   void dispose() {
-    for (var controller in _discountControllers) {
-      controller.removeListener(_updateTotals);
-      controller.dispose();
+    for (var item in _discountItems) {
+      item.controller.removeListener(_updateTotals);
+      item.controller.dispose();
     }
     super.dispose();
   }
@@ -219,15 +235,71 @@ class _CollectorLiquidationScreenState extends State<CollectorLiquidationScreen>
                         Text('Total recolectado: \$${totalCollected.toStringAsFixed(2)}'),
                         const SizedBox(height: 10),
                         ...List.generate(
-                          5,
-                          (i) => TextField(
-                            controller: _discountControllers[i],
-                            keyboardType: TextInputType.number,
-                            decoration: InputDecoration(labelText: 'Descuento ${i + 1}'),
+                          _discountItems.length,
+                          (i) => Row(
+                            children: [
+                              Expanded(
+                                flex: 2,
+                                child: DropdownButtonFormField<String>(
+                                  value: _discountItems[i].type,
+                                  items:
+                                      ['Gasolina', 'Alimentación', 'Taller', 'Repuestos', 'Otros']
+                                          .map(
+                                            (type) =>
+                                                DropdownMenuItem(value: type, child: Text(type)),
+                                          )
+                                          .toList(),
+                                  onChanged: (value) {
+                                    setState(() {
+                                      _discountItems[i].type = value!;
+                                    });
+                                  },
+                                  decoration: const InputDecoration(labelText: 'Tipo'),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                flex: 2,
+                                child: TextField(
+                                  controller: _discountItems[i].controller,
+                                  keyboardType: TextInputType.number,
+                                  decoration: InputDecoration(labelText: 'Descuento ${i + 1}'),
+                                  onChanged: (_) => _updateTotals(),
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.delete, color: Colors.red),
+                                onPressed: () {
+                                  setState(() {
+                                    _discountItems[i].controller.dispose();
+                                    _discountItems.removeAt(i);
+                                    _updateTotals();
+                                  });
+                                },
+                              ),
+                            ],
                           ),
                         ),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: TextButton.icon(
+                            icon: const Icon(Icons.add),
+                            label: const Text('Agregar descuento'),
+                            onPressed: () {
+                              setState(() {
+                                final controller = TextEditingController();
+                                controller.addListener(_updateTotals);
+                                _discountItems.add(
+                                  _DiscountItem(controller: controller, type: 'Gasolina'),
+                                );
+                              });
+                            },
+                          ),
+                        ),
+
                         const SizedBox(height: 10),
                         Text('Total descuentos: \$${discountTotal.toStringAsFixed(2)}'),
+                        Text('base: \$${colletorbase.toStringAsFixed(2)}'),
                         Text('Total neto: \$${netTotal.toStringAsFixed(2)}'),
                         const SizedBox(height: 10),
                         ElevatedButton(
