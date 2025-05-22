@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../services/user_service.dart';
 import 'home_screen.dart';
-import 'roles/collector/pays/cobros_screen.dart';
+import 'roles/collector/pays/cobros_actives_screen.dart';
 import 'roles/admin/admin_home_screen.dart'; // Importación corregida
 import '../utils/responsive.dart';
 import 'roles/owner/Register_Collector.dart';

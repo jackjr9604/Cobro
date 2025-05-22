@@ -93,13 +93,41 @@ class _EditClientScreenState extends State<EditClientScreen> {
       'updatedAt': Timestamp.now(),
     };
 
+    final clientRef = FirebaseFirestore.instance.collection('clients').doc(widget.clientId);
+
+    // Solo si es owner puede cambiar el nombre, cc y createdBy
     if (isOwner) {
       updateData['clientName'] = _nameController.text;
       updateData['cc'] = _ccController.text;
-      updateData['createdBy'] = selectedCollectorUid ?? ''; // Aquí aseguramos que no sea null
+
+      final originalCreatedBy = widget.clientData['createdBy'];
+      final newCreatedBy = selectedCollectorUid ?? '';
+
+      updateData['createdBy'] = newCreatedBy;
+
+      await clientRef.update(updateData);
+
+      // Si el createdBy fue cambiado, actualizar los créditos
+      if (originalCreatedBy != newCreatedBy) {
+        final creditsQuery =
+            await FirebaseFirestore.instance
+                .collection('credits')
+                .where('clientId', isEqualTo: widget.clientId)
+                .get();
+
+        final batch = FirebaseFirestore.instance.batch();
+
+        for (final doc in creditsQuery.docs) {
+          batch.update(doc.reference, {'createdBy': newCreatedBy});
+        }
+
+        await batch.commit();
+      }
+    } else {
+      // Si no es owner, solo actualiza los campos permitidos
+      await clientRef.update(updateData);
     }
 
-    await FirebaseFirestore.instance.collection('clients').doc(widget.clientId).update(updateData);
     Navigator.pop(context);
   }
 
