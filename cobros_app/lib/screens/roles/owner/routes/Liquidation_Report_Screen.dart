@@ -2,12 +2,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:excel/excel.dart';
-import 'dart:typed_data';
-import 'package:share_plus/share_plus.dart';
-import 'package:path_provider/path_provider.dart';
-import 'dart:io';
-import '../../../../utils/responsive.dart';
 
 class LiquidationReportScreen extends StatefulWidget {
   const LiquidationReportScreen({super.key});
@@ -97,6 +91,46 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
     }
   }
 
+  void _setQuickDateRange(String option) {
+    final now = DateTime.now();
+    DateTime start;
+    DateTime end;
+
+    switch (option) {
+      case 'Hoy':
+        start = DateTime(now.year, now.month, now.day);
+        end = start;
+        break;
+      case 'Ayer':
+        final yesterday = now.subtract(const Duration(days: 1));
+        start = DateTime(yesterday.year, yesterday.month, yesterday.day);
+        end = start;
+        break;
+      case 'Este mes':
+        start = DateTime(now.year, now.month, 1);
+        end = DateTime(now.year, now.month + 1, 0);
+        break;
+      case 'Mes pasado':
+        final lastMonth = DateTime(now.year, now.month - 1, 1);
+        start = lastMonth;
+        end = DateTime(lastMonth.year, lastMonth.month + 1, 0);
+        break;
+      case 'Este año':
+        start = DateTime(now.year, 1, 1);
+        end = DateTime(now.year, 12, 31);
+        break;
+      default:
+        return;
+    }
+
+    setState(() {
+      startDate = start;
+      endDate = end;
+    });
+
+    _fetchLiquidations();
+  }
+
   void _applyFilters() {
     filteredLiquidations =
         liquidations.where((doc) {
@@ -135,37 +169,6 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
     _fetchLiquidations();
   }
 
-  Future<void> _exportToExcel() async {
-    final excel = Excel.createExcel();
-    final sheet = excel['Reporte'];
-
-    sheet.appendRow(['Fecha', 'Cobrador', 'Recaudado', 'Descuento', 'Neto', 'Pagos']);
-
-    for (var doc in filteredLiquidations) {
-      final data = doc.data() as Map<String, dynamic>;
-      final date = (data['date'] as Timestamp).toDate();
-      final payments = List.from(data['payments'] ?? []);
-      sheet.appendRow([
-        DateFormat('yyyy-MM-dd').format(date),
-        data['collectorName'] ?? '',
-        data['totalCollected'] ?? 0,
-        data['discountTotal'] ?? 0,
-        data['netTotal'] ?? 0,
-        payments.length,
-      ]);
-    }
-
-    final fileBytes = excel.encode();
-    if (fileBytes == null) return;
-
-    final directory = await getTemporaryDirectory();
-    final filePath = '${directory.path}/reporte_liquidaciones.xlsx';
-    final file = File(filePath);
-    await file.writeAsBytes(fileBytes, flush: true);
-
-    await Share.shareXFiles([XFile(filePath)], text: 'Reporte de Liquidaciones');
-  }
-
   late List<ColumnDefinition> allColumns;
   Set<String> visibleColumnsKeys = {}; // Las columnas seleccionadas visibles
 
@@ -199,6 +202,56 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
         label: 'Recaudado',
         numeric: true,
         getValue: (d) => d['totalCollected'] ?? 0,
+      ),
+      ColumnDefinition(
+        key: 'alimentaciónDiscount',
+        label: 'Alimentación',
+        numeric: true,
+        getValue: (d) {
+          final data = d.data() as Map<String, dynamic>;
+          final discounts = data['discounts'] as Map<String, dynamic>? ?? {};
+          return discounts['Alimentación'] ?? 0;
+        },
+      ),
+      ColumnDefinition(
+        key: 'gasolineDiscount',
+        label: 'Gasolina',
+        numeric: true,
+        getValue: (d) {
+          final data = d.data() as Map<String, dynamic>;
+          final discounts = data['discounts'] as Map<String, dynamic>? ?? {};
+          return discounts['Gasolina'] ?? 0;
+        },
+      ),
+      ColumnDefinition(
+        key: 'tallerDiscount',
+        label: 'Taller',
+        numeric: true,
+        getValue: (d) {
+          final data = d.data() as Map<String, dynamic>;
+          final discounts = data['discounts'] as Map<String, dynamic>? ?? {};
+          return discounts['Taller'] ?? 0;
+        },
+      ),
+      ColumnDefinition(
+        key: 'repuestosDiscount',
+        label: 'Repuestos',
+        numeric: true,
+        getValue: (d) {
+          final data = d.data() as Map<String, dynamic>;
+          final discounts = data['discounts'] as Map<String, dynamic>? ?? {};
+          return discounts['Repuestos'] ?? 0;
+        },
+      ),
+      ColumnDefinition(
+        key: 'otrosDiscount',
+        label: 'Otros',
+        numeric: true,
+        getValue: (d) {
+          final data = d.data() as Map<String, dynamic>;
+          final discounts = data['discounts'] as Map<String, dynamic>? ?? {};
+          return discounts['Otros'] ?? 0;
+        },
       ),
       ColumnDefinition(
         key: 'discountTotal',
@@ -289,6 +342,11 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
   Widget build(BuildContext context) {
     double totalCollected = 0;
     double totalDiscount = 0;
+    double totalAlimentacion = 0;
+    double totalGasoline = 0;
+    double totalRepuestos = 0;
+    double totalTaller = 0;
+    double totalOtros = 0;
     double totalNet = 0;
     int totalPayments = 0;
 
@@ -303,6 +361,13 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
       totalDiscount += (data['discountTotal'] ?? 0).toDouble();
       totalNet += (data['netTotal'] ?? 0).toDouble();
       totalPayments += (data['payments'] as List?)?.length ?? 0;
+
+      final discounts = data['discounts'] as Map<String, dynamic>? ?? {};
+      totalGasoline += (discounts['Gasolina'] ?? 0).toDouble();
+      totalRepuestos += (discounts['Repuestos'] ?? 0).toDouble();
+      totalAlimentacion += (discounts['Alimentación'] ?? 0).toDouble();
+      totalTaller += (discounts['Taller'] ?? 0).toDouble();
+      totalOtros += (discounts['Otros'] ?? 0).toDouble();
     }
 
     return Scaffold(
@@ -332,177 +397,220 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
             icon: const Icon(Icons.date_range),
             label: const Text('Filtrar por fecha'),
           ),
-          IconButton(icon: const Icon(Icons.clear), onPressed: _clearFilters),
-          IconButton(icon: const Icon(Icons.download), onPressed: _exportToExcel),
-        ],
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(120),
-          child: Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                child: Autocomplete<String>(
-                  optionsBuilder: (TextEditingValue textEditingValue) {
-                    if (textEditingValue.text == '') {
-                      return _collectors;
-                    }
-                    return _collectors.where(
-                      (collector) =>
-                          collector.toLowerCase().contains(textEditingValue.text.toLowerCase()),
-                    );
-                  },
-                  onSelected: (String selection) {
-                    setState(() {
-                      _selectedCollector = selection;
-                      _applyFilters();
-                    });
-                  },
-                  fieldViewBuilder: (context, controller, focusNode, onEditingComplete) {
-                    controller.text = _selectedCollector ?? '';
-                    return TextField(
-                      controller: controller,
-                      focusNode: focusNode,
-                      onEditingComplete: onEditingComplete,
-                      decoration: InputDecoration(
-                        hintText: 'Filtrar por cobrador...',
-                        prefixIcon: const Icon(Icons.person_search),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                        suffixIcon:
-                            _selectedCollector != null
-                                ? IconButton(
-                                  icon: const Icon(Icons.clear),
-                                  onPressed: () {
-                                    setState(() {
-                                      _selectedCollector = null;
-                                      _applyFilters();
-                                    });
-                                  },
-                                )
-                                : null,
-                      ),
-                    );
-                  },
-                ),
-              ),
-              if (startDate != null && endDate != null)
-                Text(
-                  'Rango: ${DateFormat('yyyy-MM-dd').format(startDate!)} - ${DateFormat('yyyy-MM-dd').format(endDate!)}',
-                  style: const TextStyle(fontSize: 13, fontStyle: FontStyle.italic),
-                ),
-              Text(
-                'Mostrando ${filteredLiquidations.length} resultados',
-                style: const TextStyle(fontSize: 13, fontStyle: FontStyle.italic),
-              ),
-              const SizedBox(height: 4),
-            ],
+          PopupMenuButton<String>(
+            onSelected: _setQuickDateRange,
+            icon: const Icon(Icons.filter_alt),
+            itemBuilder:
+                (context) => [
+                  const PopupMenuItem(value: 'Hoy', child: Text('Hoy')),
+                  const PopupMenuItem(value: 'Ayer', child: Text('Ayer')),
+                  const PopupMenuItem(value: 'Este mes', child: Text('Este mes')),
+                  const PopupMenuItem(value: 'Mes pasado', child: Text('Mes pasado')),
+                  const PopupMenuItem(value: 'Este año', child: Text('Este año')),
+                ],
           ),
-        ),
+
+          IconButton(icon: const Icon(Icons.clear), onPressed: _clearFilters),
+        ],
       ),
-      body:
-          _isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : filteredLiquidations.isEmpty
-              ? const Center(child: Text('No hay liquidaciones registradas.'))
-              : LayoutBuilder(
-                builder: (context, constraints) {
-                  return Expanded(
-                    child: Container(
-                      height: screenHeight,
-                      width: screenWidth,
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(),
-                      child: Scrollbar(
-                        controller: _horizontalScrollController,
-                        thumbVisibility: true,
-                        child: SingleChildScrollView(
-                          controller: _horizontalScrollController,
-                          scrollDirection: Axis.horizontal,
-                          child: ConstrainedBox(
-                            constraints: BoxConstraints(
-                              minWidth: MediaQuery.of(context).size.width,
-                            ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+            child: Row(
+              children: [
+                const Text('Filtrar por cobrador: '),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Autocomplete<String>(
+                    optionsBuilder: (TextEditingValue textEditingValue) {
+                      return _collectors.where((String option) {
+                        return option.toLowerCase().contains(textEditingValue.text.toLowerCase());
+                      });
+                    },
+                    onSelected: (String selection) {
+                      setState(() {
+                        _selectedCollector = selection;
+                      });
+                      _applyFilters();
+                    },
+                    fieldViewBuilder: (context, controller, focusNode, onEditingComplete) {
+                      controller.text = _selectedCollector ?? '';
+                      return TextField(
+                        controller: controller,
+                        focusNode: focusNode,
+                        onEditingComplete: onEditingComplete,
+                        decoration: const InputDecoration(
+                          hintText: 'Escribe un nombre',
+                          border: OutlineInputBorder(),
+                          contentPadding: EdgeInsets.symmetric(horizontal: 8.0),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          if (startDate != null && endDate != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8.0),
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.blueAccent),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.calendar_today, size: 16, color: Colors.blueAccent),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Rango de fechas: ${DateFormat('yyyy-MM-dd').format(startDate!)} → ${DateFormat('yyyy-MM-dd').format(endDate!)}',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w500,
+                          color: Colors.blueAccent,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          const Divider(),
+          Expanded(
+            child:
+                _isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : filteredLiquidations.isEmpty
+                    ? const Center(child: Text('No hay liquidaciones registradas.'))
+                    : LayoutBuilder(
+                      builder: (context, constraints) {
+                        return Container(
+                          height: screenHeight,
+                          width: screenWidth,
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(),
+                          child: Scrollbar(
+                            controller: _horizontalScrollController,
+                            thumbVisibility: true,
                             child: SingleChildScrollView(
-                              child: DataTable(
-                                sortColumnIndex: _sortColumnIndex,
-                                sortAscending: _sortAscending,
-                                columns:
-                                    visibleColumns
-                                        .asMap()
-                                        .entries
-                                        .map(
-                                          (entry) => DataColumn(
-                                            label: Text(entry.value.label),
-                                            numeric: entry.value.numeric,
-                                            onSort:
-                                                (columnIndex, ascending) => _onSort(
-                                                  entry.value.getValue,
-                                                  columnIndex,
-                                                  ascending,
+                              controller: _horizontalScrollController,
+                              scrollDirection: Axis.horizontal,
+                              child: ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  minWidth: MediaQuery.of(context).size.width,
+                                ),
+                                child: SingleChildScrollView(
+                                  child: DataTable(
+                                    sortColumnIndex: _sortColumnIndex,
+                                    sortAscending: _sortAscending,
+                                    columns:
+                                        visibleColumns
+                                            .asMap()
+                                            .entries
+                                            .map(
+                                              (entry) => DataColumn(
+                                                label: Text(entry.value.label),
+                                                numeric: entry.value.numeric,
+                                                onSort:
+                                                    (columnIndex, ascending) => _onSort(
+                                                      entry.value.getValue,
+                                                      columnIndex,
+                                                      ascending,
+                                                    ),
+                                              ),
+                                            )
+                                            .toList(),
+                                    rows: [
+                                      ...filteredLiquidations.map((doc) {
+                                        return DataRow(
+                                          cells:
+                                              allColumns
+                                                  .where(
+                                                    (col) => visibleColumnsKeys.contains(col.key),
+                                                  )
+                                                  .map((col) {
+                                                    final value = col.getValue(doc);
+                                                    final displayValue =
+                                                        value is DateTime
+                                                            ? DateFormat('yyyy-MM-dd').format(value)
+                                                            : (col.key == 'payments' && value is num
+                                                                ? value.toInt().toString()
+                                                                : (col.numeric && value is num
+                                                                    ? currencyFormat.format(value)
+                                                                    : value.toString()));
+
+                                                    return DataCell(Text(displayValue));
+                                                  })
+                                                  .toList(),
+                                        );
+                                      }),
+                                      DataRow(
+                                        color: MaterialStateProperty.all(Colors.grey[300]),
+                                        cells:
+                                            visibleColumns.map((col) {
+                                              String text = '';
+                                              switch (col.key) {
+                                                case 'totalCollected':
+                                                  text = currencyFormat.format(totalCollected);
+                                                  break;
+                                                case 'alimentaciónDiscount':
+                                                  text = currencyFormat.format(totalAlimentacion);
+                                                  break;
+                                                case 'gasolineDiscount':
+                                                  text = currencyFormat.format(totalGasoline);
+                                                  break;
+                                                case 'repuestosDiscount':
+                                                  text = currencyFormat.format(totalRepuestos);
+                                                  break;
+                                                case 'tallerDiscount':
+                                                  text = currencyFormat.format(totalTaller);
+                                                  break;
+                                                case 'otrosDiscount':
+                                                  text = currencyFormat.format(totalOtros);
+                                                  break;
+                                                case 'discountTotal':
+                                                  text = currencyFormat.format(totalDiscount);
+                                                  break;
+                                                case 'netTotal':
+                                                  text = currencyFormat.format(totalNet);
+                                                  break;
+                                                case 'payments':
+                                                  text = totalPayments.toString();
+                                                  break;
+                                                case 'date':
+                                                  text = 'Totales';
+                                                  break;
+                                                default:
+                                                  text = '';
+                                              }
+                                              return DataCell(
+                                                Text(
+                                                  text,
+                                                  style: const TextStyle(
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
                                                 ),
-                                          ),
-                                        )
-                                        .toList(),
-                                rows: [
-                                  ...filteredLiquidations.map((doc) {
-                                    return DataRow(
-                                      cells:
-                                          allColumns
-                                              .where((col) => visibleColumnsKeys.contains(col.key))
-                                              .map((col) {
-                                                final value = col.getValue(doc);
-                                                final displayValue =
-                                                    value is DateTime
-                                                        ? DateFormat('yyyy-MM-dd').format(value)
-                                                        : (col.numeric && value is num
-                                                            ? currencyFormat.format(value)
-                                                            : value.toString());
-                                                return DataCell(Text(displayValue));
-                                              })
-                                              .toList(),
-                                    );
-                                  }),
-                                  DataRow(
-                                    color: MaterialStateProperty.all(Colors.grey[300]),
-                                    cells:
-                                        visibleColumns.map((col) {
-                                          String text = '';
-                                          switch (col.key) {
-                                            case 'totalCollected':
-                                              text = currencyFormat.format(totalCollected);
-                                              break;
-                                            case 'discountTotal':
-                                              text = currencyFormat.format(totalDiscount);
-                                              break;
-                                            case 'netTotal':
-                                              text = currencyFormat.format(totalNet);
-                                              break;
-                                            case 'payments':
-                                              text = totalPayments.toString();
-                                              break;
-                                            case 'date':
-                                              text = 'Totales';
-                                              break;
-                                            default:
-                                              text = '';
-                                          }
-                                          return DataCell(
-                                            Text(
-                                              text,
-                                              style: const TextStyle(fontWeight: FontWeight.bold),
-                                            ),
-                                          );
-                                        }).toList(),
+                                              );
+                                            }).toList(),
+                                      ),
+                                    ],
                                   ),
-                                ],
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                      ),
+                        );
+                      },
                     ),
-                  );
-                },
-              ),
+          ),
+        ],
+      ),
     );
   }
 }
