@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:math' as math;
 
 class LiquidationReportScreen extends StatefulWidget {
   const LiquidationReportScreen({super.key});
@@ -38,7 +39,13 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
   int? _sortColumnIndex;
   bool _sortAscending = true;
 
+  // Nuevas variables para paginación
+  int _currentPage = 0;
+  int _rowsPerPage = 20; // Puedes ajustar este número según prefieras
+  final List<int> _rowsPerPageOptions = [10, 20, 50, 100]; // Opciones para cambiar items por página
+
   final ScrollController _horizontalScrollController = ScrollController();
+  final ScrollController _verticalScrollController = ScrollController();
   final currencyFormat = NumberFormat.currency(locale: 'es_CO', symbol: '\$');
 
   Future<void> _fetchLiquidations() async {
@@ -65,7 +72,11 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
 
       if (startDate != null && endDate != null) {
         final start = DateTime(startDate!.year, startDate!.month, startDate!.day);
-        final end = DateTime(endDate!.year, endDate!.month, endDate!.day + 1);
+        final end = DateTime(
+          endDate!.year,
+          endDate!.month,
+          endDate!.day,
+        ).add(const Duration(days: 1));
         query = query.where('date', isGreaterThanOrEqualTo: start).where('date', isLessThan: end);
       }
 
@@ -106,6 +117,20 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
         start = DateTime(yesterday.year, yesterday.month, yesterday.day);
         end = start;
         break;
+      case 'Esta semana':
+        final daysFromMonday = now.weekday - DateTime.monday;
+        start = DateTime(now.year, now.month, now.day - daysFromMonday);
+        end = now;
+        break;
+      case 'Semana pasada':
+        final today = DateTime(now.year, now.month, now.day);
+        final startOfCurrentWeek = today.subtract(Duration(days: today.weekday - DateTime.monday));
+        final startOfLastWeek = startOfCurrentWeek.subtract(const Duration(days: 7));
+        final endOfLastWeek = startOfLastWeek.add(const Duration(days: 6));
+
+        start = startOfLastWeek;
+        end = endOfLastWeek;
+        break;
       case 'Este mes':
         start = DateTime(now.year, now.month, 1);
         end = DateTime(now.year, now.month + 1, 0);
@@ -131,17 +156,101 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
     _fetchLiquidations();
   }
 
+  Widget _buildPaginationControls() {
+    final totalPages = (filteredLiquidations.length / _rowsPerPage).ceil();
+    final firstItem = _currentPage * _rowsPerPage + 1;
+    final lastItem = math.min((_currentPage + 1) * _rowsPerPage, filteredLiquidations.length);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      decoration: BoxDecoration(
+        color: Theme.of(context).cardColor,
+        border: Border(
+          top: BorderSide(color: Theme.of(context).dividerColor),
+          bottom: BorderSide(color: Theme.of(context).dividerColor),
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          // Botón primera página
+          IconButton(
+            icon: const Icon(Icons.first_page),
+            onPressed: _currentPage > 0 ? () => setState(() => _currentPage = 0) : null,
+            tooltip: 'Primera página',
+          ),
+
+          // Botón página anterior
+          IconButton(
+            icon: const Icon(Icons.chevron_left),
+            onPressed: _currentPage > 0 ? () => setState(() => _currentPage--) : null,
+            tooltip: 'Página anterior',
+          ),
+
+          // Indicador de página
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Text(
+              '$firstItem-$lastItem de ${filteredLiquidations.length}',
+              style: const TextStyle(fontSize: 14),
+            ),
+          ),
+
+          // Botón página siguiente
+          IconButton(
+            icon: const Icon(Icons.chevron_right),
+            onPressed: _currentPage < totalPages - 1 ? () => setState(() => _currentPage++) : null,
+            tooltip: 'Página siguiente',
+          ),
+
+          // Botón última página
+          IconButton(
+            icon: const Icon(Icons.last_page),
+            onPressed:
+                _currentPage < totalPages - 1
+                    ? () => setState(() => _currentPage = totalPages - 1)
+                    : null,
+            tooltip: 'Última página',
+          ),
+
+          // Selector de items por página
+          PopupMenuButton<int>(
+            icon: const Icon(Icons.settings),
+            itemBuilder:
+                (context) =>
+                    _rowsPerPageOptions.map((value) {
+                      return PopupMenuItem<int>(
+                        value: value,
+                        child: Text('$value items por página'),
+                      );
+                    }).toList(),
+            onSelected: (value) {
+              setState(() {
+                _rowsPerPage = value;
+                _currentPage = 0; // Reset a la primera página
+              });
+            },
+            tooltip: 'Items por página',
+          ),
+        ],
+      ),
+    );
+  }
+
   void _applyFilters() {
-    filteredLiquidations =
-        liquidations.where((doc) {
-          final data = doc.data() as Map<String, dynamic>;
-          final name = (data['collectorName'] ?? '').toString();
-          if (_selectedCollector == null || _selectedCollector!.isEmpty) {
-            return true;
-          } else {
-            return name == _selectedCollector;
-          }
-        }).toList();
+    setState(() {
+      _currentPage = 0; // Resetear a la primera página
+      filteredLiquidations =
+          liquidations.where((doc) {
+            final data = doc.data() as Map<String, dynamic>;
+            final name = (data['collectorName'] ?? '').toString();
+            if (_selectedCollector == null || _selectedCollector!.isEmpty) {
+              return true;
+            } else {
+              return name == _selectedCollector;
+            }
+          }).toList();
+    });
   }
 
   void _onSort<T>(
@@ -280,6 +389,7 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
   @override
   void dispose() {
     _horizontalScrollController.dispose();
+    _verticalScrollController.dispose();
     super.dispose();
   }
 
@@ -338,37 +448,58 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
     );
   }
 
+  // Reemplaza el cálculo manual por este método
+  Map<String, dynamic> _calculateTotals() {
+    if (filteredLiquidations.isEmpty) {
+      return {
+        'totalCollected': 0.0,
+        'totalDiscount': 0.0,
+        'totalAlimentacion': 0.0,
+        'totalGasoline': 0.0,
+        'totalRepuestos': 0.0,
+        'totalTaller': 0.0,
+        'totalOtros': 0.0,
+        'totalNet': 0.0,
+        'totalPayments': 0,
+      };
+    }
+    return filteredLiquidations.fold(
+      {
+        'totalCollected': 0.0,
+        'totalDiscount': 0.0,
+        'totalAlimentacion': 0.0,
+        'totalGasoline': 0.0,
+        'totalRepuestos': 0.0,
+        'totalTaller': 0.0,
+        'totalOtros': 0.0,
+        'totalNet': 0.0,
+        'totalPayments': 0,
+      },
+      (totals, doc) {
+        final data = doc.data() as Map<String, dynamic>;
+        final discounts = data['discounts'] as Map<String, dynamic>? ?? {};
+
+        totals['totalCollected'] += (data['totalCollected'] ?? 0).toDouble();
+        totals['totalDiscount'] += (data['discountTotal'] ?? 0).toDouble();
+        totals['totalNet'] += (data['netTotal'] ?? 0).toDouble();
+        totals['totalPayments'] += (data['payments'] as List?)?.length ?? 0;
+
+        totals['totalGasoline'] += (discounts['Gasolina'] ?? 0).toDouble();
+        totals['totalRepuestos'] += (discounts['Repuestos'] ?? 0).toDouble();
+        totals['totalAlimentacion'] += (discounts['Alimentación'] ?? 0).toDouble();
+        totals['totalTaller'] += (discounts['Taller'] ?? 0).toDouble();
+        totals['totalOtros'] += (discounts['Otros'] ?? 0).toDouble();
+
+        return totals;
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    double totalCollected = 0;
-    double totalDiscount = 0;
-    double totalAlimentacion = 0;
-    double totalGasoline = 0;
-    double totalRepuestos = 0;
-    double totalTaller = 0;
-    double totalOtros = 0;
-    double totalNet = 0;
-    int totalPayments = 0;
-
-    final screenWidth = MediaQuery.of(context).size.width;
-    final screenHeight = MediaQuery.of(context).size.height;
+    final totals = _calculateTotals();
 
     final visibleColumns = allColumns.where((col) => visibleColumnsKeys.contains(col.key)).toList();
-
-    for (var doc in filteredLiquidations) {
-      final data = doc.data() as Map<String, dynamic>;
-      totalCollected += (data['totalCollected'] ?? 0).toDouble();
-      totalDiscount += (data['discountTotal'] ?? 0).toDouble();
-      totalNet += (data['netTotal'] ?? 0).toDouble();
-      totalPayments += (data['payments'] as List?)?.length ?? 0;
-
-      final discounts = data['discounts'] as Map<String, dynamic>? ?? {};
-      totalGasoline += (discounts['Gasolina'] ?? 0).toDouble();
-      totalRepuestos += (discounts['Repuestos'] ?? 0).toDouble();
-      totalAlimentacion += (discounts['Alimentación'] ?? 0).toDouble();
-      totalTaller += (discounts['Taller'] ?? 0).toDouble();
-      totalOtros += (discounts['Otros'] ?? 0).toDouble();
-    }
 
     return Scaffold(
       appBar: AppBar(
@@ -385,6 +516,10 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
                 context: context,
                 firstDate: DateTime(2022),
                 lastDate: DateTime.now(),
+                initialDateRange: DateTimeRange(
+                  start: startDate ?? DateTime.now(),
+                  end: endDate ?? DateTime.now(),
+                ),
               );
               if (picked != null) {
                 setState(() {
@@ -404,13 +539,19 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
                 (context) => [
                   const PopupMenuItem(value: 'Hoy', child: Text('Hoy')),
                   const PopupMenuItem(value: 'Ayer', child: Text('Ayer')),
+                  const PopupMenuItem(value: 'Esta semana', child: Text('Esta semana')),
+                  const PopupMenuItem(value: 'Semana pasada', child: Text('Semana pasada')),
                   const PopupMenuItem(value: 'Este mes', child: Text('Este mes')),
                   const PopupMenuItem(value: 'Mes pasado', child: Text('Mes pasado')),
                   const PopupMenuItem(value: 'Este año', child: Text('Este año')),
                 ],
           ),
 
-          IconButton(icon: const Icon(Icons.clear), onPressed: _clearFilters),
+          IconButton(
+            icon: const Icon(Icons.clear),
+            onPressed: _clearFilters,
+            tooltip: 'Limpiar todos los filtros',
+          ),
         ],
       ),
       body: Column(
@@ -487,126 +628,158 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
                 _isLoading
                     ? const Center(child: CircularProgressIndicator())
                     : filteredLiquidations.isEmpty
-                    ? const Center(child: Text('No hay liquidaciones registradas.'))
-                    : LayoutBuilder(
-                      builder: (context, constraints) {
-                        return Container(
-                          height: screenHeight,
-                          width: screenWidth,
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(),
+                    ? const Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.inbox, size: 48, color: Colors.grey),
+                          SizedBox(height: 16),
+                          Text('No hay liquidaciones en este rango'),
+                          Text('Prueba con otros filtros', style: TextStyle(color: Colors.grey)),
+                        ],
+                      ),
+                    )
+                    : Column(
+                      children: [
+                        Expanded(
                           child: Scrollbar(
                             controller: _horizontalScrollController,
                             thumbVisibility: true,
+                            trackVisibility: true,
                             child: SingleChildScrollView(
                               controller: _horizontalScrollController,
                               scrollDirection: Axis.horizontal,
-                              child: ConstrainedBox(
-                                constraints: BoxConstraints(
-                                  minWidth: MediaQuery.of(context).size.width,
-                                ),
-                                child: SingleChildScrollView(
-                                  child: DataTable(
-                                    sortColumnIndex: _sortColumnIndex,
-                                    sortAscending: _sortAscending,
-                                    columns:
-                                        visibleColumns
-                                            .asMap()
-                                            .entries
-                                            .map(
-                                              (entry) => DataColumn(
-                                                label: Text(entry.value.label),
-                                                numeric: entry.value.numeric,
-                                                onSort:
-                                                    (columnIndex, ascending) => _onSort(
-                                                      entry.value.getValue,
-                                                      columnIndex,
-                                                      ascending,
-                                                    ),
-                                              ),
-                                            )
-                                            .toList(),
-                                    rows: [
-                                      ...filteredLiquidations.map((doc) {
-                                        return DataRow(
-                                          cells:
-                                              allColumns
-                                                  .where(
-                                                    (col) => visibleColumnsKeys.contains(col.key),
-                                                  )
-                                                  .map((col) {
-                                                    final value = col.getValue(doc);
-                                                    final displayValue =
-                                                        value is DateTime
-                                                            ? DateFormat('yyyy-MM-dd').format(value)
-                                                            : (col.key == 'payments' && value is num
-                                                                ? value.toInt().toString()
-                                                                : (col.numeric && value is num
-                                                                    ? currencyFormat.format(value)
-                                                                    : value.toString()));
+                              child: SizedBox(
+                                width: MediaQuery.of(context).size.width,
+                                child: ListView(
+                                  shrinkWrap: true,
+                                  controller: _verticalScrollController,
 
-                                                    return DataCell(Text(displayValue));
-                                                  })
-                                                  .toList(),
-                                        );
-                                      }),
-                                      DataRow(
-                                        color: MaterialStateProperty.all(Colors.grey[300]),
-                                        cells:
-                                            visibleColumns.map((col) {
-                                              String text = '';
-                                              switch (col.key) {
-                                                case 'totalCollected':
-                                                  text = currencyFormat.format(totalCollected);
-                                                  break;
-                                                case 'alimentaciónDiscount':
-                                                  text = currencyFormat.format(totalAlimentacion);
-                                                  break;
-                                                case 'gasolineDiscount':
-                                                  text = currencyFormat.format(totalGasoline);
-                                                  break;
-                                                case 'repuestosDiscount':
-                                                  text = currencyFormat.format(totalRepuestos);
-                                                  break;
-                                                case 'tallerDiscount':
-                                                  text = currencyFormat.format(totalTaller);
-                                                  break;
-                                                case 'otrosDiscount':
-                                                  text = currencyFormat.format(totalOtros);
-                                                  break;
-                                                case 'discountTotal':
-                                                  text = currencyFormat.format(totalDiscount);
-                                                  break;
-                                                case 'netTotal':
-                                                  text = currencyFormat.format(totalNet);
-                                                  break;
-                                                case 'payments':
-                                                  text = totalPayments.toString();
-                                                  break;
-                                                case 'date':
-                                                  text = 'Totales';
-                                                  break;
-                                                default:
-                                                  text = '';
-                                              }
-                                              return DataCell(
-                                                Text(
-                                                  text,
-                                                  style: const TextStyle(
-                                                    fontWeight: FontWeight.bold,
-                                                  ),
+                                  padding: EdgeInsets.zero,
+                                  physics: const ClampingScrollPhysics(),
+                                  children: [
+                                    DataTable(
+                                      columnSpacing: 20,
+                                      sortColumnIndex: _sortColumnIndex,
+                                      sortAscending: _sortAscending,
+                                      columns:
+                                          visibleColumns
+                                              .asMap()
+                                              .entries
+                                              .map(
+                                                (entry) => DataColumn(
+                                                  label: Text(entry.value.label),
+                                                  numeric: entry.value.numeric,
+                                                  onSort:
+                                                      (columnIndex, ascending) => _onSort(
+                                                        entry.value.getValue,
+                                                        columnIndex,
+                                                        ascending,
+                                                      ),
                                                 ),
+                                              )
+                                              .toList(),
+                                      rows: [
+                                        ...filteredLiquidations
+                                            .skip(_currentPage * _rowsPerPage)
+                                            .take(_rowsPerPage)
+                                            .map((doc) {
+                                              final data = doc.data() as Map<String, dynamic>;
+                                              return DataRow(
+                                                cells:
+                                                    visibleColumns.map((col) {
+                                                      final value = col.getValue(doc);
+                                                      final displayValue =
+                                                          value is DateTime
+                                                              ? DateFormat(
+                                                                'yyyy-MM-dd',
+                                                              ).format(value)
+                                                              : (col.key == 'payments' &&
+                                                                      value is num
+                                                                  ? value.toInt().toString()
+                                                                  : (col.numeric && value is num
+                                                                      ? currencyFormat.format(value)
+                                                                      : value.toString()));
+                                                      return DataCell(Text(displayValue));
+                                                    }).toList(),
                                               );
-                                            }).toList(),
-                                      ),
-                                    ],
-                                  ),
+                                            }),
+
+                                        DataRow(
+                                          color: MaterialStateProperty.all(Colors.grey[300]),
+                                          cells:
+                                              visibleColumns.map((col) {
+                                                String text = '';
+                                                switch (col.key) {
+                                                  case 'totalCollected':
+                                                    text = currencyFormat.format(
+                                                      totals['totalCollected'],
+                                                    );
+                                                    break;
+                                                  case 'alimentaciónDiscount':
+                                                    text = currencyFormat.format(
+                                                      totals['totalAlimentacion'],
+                                                    );
+                                                    break;
+                                                  case 'gasolineDiscount':
+                                                    text = currencyFormat.format(
+                                                      totals['totalGasoline'],
+                                                    );
+                                                    break;
+                                                  case 'repuestosDiscount':
+                                                    text = currencyFormat.format(
+                                                      totals['totalRepuestos'],
+                                                    );
+                                                    break;
+                                                  case 'tallerDiscount':
+                                                    text = currencyFormat.format(
+                                                      totals['totalTaller'],
+                                                    );
+                                                    break;
+                                                  case 'otrosDiscount':
+                                                    text = currencyFormat.format(
+                                                      totals['totalOtros'],
+                                                    );
+                                                    break;
+                                                  case 'discountTotal':
+                                                    text = currencyFormat.format(
+                                                      totals['totalDiscount'],
+                                                    );
+                                                    break;
+                                                  case 'netTotal':
+                                                    text = currencyFormat.format(
+                                                      totals['totalNet'],
+                                                    );
+                                                    break;
+                                                  case 'payments':
+                                                    text = totals['totalPayments'].toString();
+                                                    break;
+                                                  case 'date':
+                                                    text = 'Totales';
+                                                    break;
+                                                  default:
+                                                    text = '';
+                                                }
+                                                return DataCell(
+                                                  Text(
+                                                    text,
+                                                    style: const TextStyle(
+                                                      fontWeight: FontWeight.bold,
+                                                    ),
+                                                  ),
+                                                );
+                                              }).toList(),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),
                           ),
-                        );
-                      },
+                        ),
+                        _buildPaginationControls(),
+                      ],
                     ),
           ),
         ],
