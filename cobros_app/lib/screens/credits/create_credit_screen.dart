@@ -30,6 +30,77 @@ class _CreateCreditScreenState extends State<CreateCreditScreen> {
   double get _total => _credit + _interest;
   double get _installment => _total / (_cuot > 0 ? _cuot : 1);
 
+  // Función para calcular fechas de pago basadas en el método
+  List<DateTime> _calculatePaymentDates(DateTime startDate, String method, String? dayOfWeek) {
+    final dates = <DateTime>[];
+    final now = DateTime.now();
+    startDate = DateTime(now.year, now.month, now.day); // Fecha sin hora
+
+    switch (method) {
+      case 'Diario':
+        for (int i = 1; i <= 30; i++) {
+          // 30 días como ejemplo
+          dates.add(startDate.add(Duration(days: i)));
+        }
+        break;
+
+      case 'Semanal':
+        if (dayOfWeek != null) {
+          final weekDays = [
+            'Lunes',
+            'Martes',
+            'Miércoles',
+            'Jueves',
+            'Viernes',
+            'Sábado',
+            'Domingo',
+          ];
+          final targetDay = weekDays.indexOf(dayOfWeek);
+
+          DateTime nextDate = startDate;
+          while (nextDate.weekday != targetDay + 1) {
+            nextDate = nextDate.add(const Duration(days: 1));
+          }
+
+          for (int i = 0; i < 52; i++) {
+            // 52 semanas = 1 año
+            dates.add(nextDate.add(Duration(days: i * 7)));
+          }
+        }
+        break;
+
+      case 'Quincenal':
+        for (int i = 1; i <= 24; i++) {
+          // 24 quincenas = 1 año
+          dates.add(startDate.add(Duration(days: i * 15)));
+        }
+        break;
+
+      case 'Mensual':
+        for (int i = 1; i <= 12; i++) {
+          // 12 meses
+          // Añadir meses manteniendo el día (ajustando si el día no existe en el mes)
+          final nextMonth = startDate.month + i;
+          final year = startDate.year + (nextMonth ~/ 12);
+          final month = nextMonth % 12;
+          final day = startDate.day;
+
+          DateTime nextDate;
+          try {
+            nextDate = DateTime(year, month, day);
+          } catch (e) {
+            // Si el día no existe en el mes (ej. 31 en abril), usar último día del mes
+            nextDate = DateTime(year, month + 1, 0);
+          }
+
+          dates.add(nextDate);
+        }
+        break;
+    }
+
+    return dates;
+  }
+
   final List<String> _daysOfWeek = [
     'Lunes',
     'Martes',
@@ -63,8 +134,12 @@ class _CreateCreditScreenState extends State<CreateCreditScreen> {
     }
 
     final clientCreatorUid = clientData['createdBy'];
-
     final docId = '${widget.clientId}_${const Uuid().v4().substring(0, 10)}';
+    final now = DateTime.now();
+
+    // Calcular fechas de pago
+    final paymentDates = _calculatePaymentDates(now, _method, _selectedDay);
+    final paymentSchedule = paymentDates.map((date) => date.toIso8601String()).toList();
 
     Map<String, dynamic> dataToSave = {
       'clientId': widget.clientId,
@@ -76,6 +151,11 @@ class _CreateCreditScreenState extends State<CreateCreditScreen> {
       'method': _method,
       'cuot': _cuot,
       'isActive': true,
+      'paymentSchedule': paymentSchedule,
+      'nextPaymentIndex': 0, // Índice del próximo pago
+      'lastPaymentDate': null, // Se actualizará cuando se hagan pagos
+      'daysOverdue': 0, // Días en mora
+      'accumulatedInterest': 0.0, // Interés acumulado por mora
     };
 
     if (_method == 'Semanal') {

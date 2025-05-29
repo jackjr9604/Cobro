@@ -21,6 +21,7 @@ class CreditsRoutesScreen extends StatelessWidget {
   double sumPayments(Map<String, dynamic> data) {
     return data.entries
         .where((e) => e.key.startsWith('pay'))
+        .where((e) => e.value is Map<String, dynamic>) // Filtra solo los valores que son Map
         .map((e) => (e.value['amount'] ?? 0).toDouble())
         .fold(0.0, (prev, el) => prev + el);
   }

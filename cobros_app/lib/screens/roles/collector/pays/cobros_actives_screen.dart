@@ -28,6 +28,43 @@ class _CobrosScreenState extends State<CobrosScreen> {
     return true; // Todos los pagos están inactivos o no hay pagos
   }
 
+  Map<String, dynamic> _calculateOverdueInfo(Map<String, dynamic> creditData) {
+    final now = DateTime.now();
+    final paymentSchedule =
+        (creditData['paymentSchedule'] as List<dynamic>?)
+            ?.map((dateStr) => DateTime.parse(dateStr as String))
+            .toList() ??
+        [];
+
+    final nextPaymentIndex = (creditData['nextPaymentIndex'] as int?) ?? 0;
+    final lastPaymentDate = (creditData['lastPaymentDate'] as Timestamp?)?.toDate();
+    final interestRate = (creditData['interest'] as num?)?.toDouble() ?? 0.0;
+    final creditValue = (creditData['credit'] as num?)?.toDouble() ?? 0.0;
+
+    int daysOverdue = 0;
+    double accumulatedInterest = 0.0;
+    DateTime? nextPaymentDate;
+
+    if (paymentSchedule.isNotEmpty && nextPaymentIndex < paymentSchedule.length) {
+      nextPaymentDate = paymentSchedule[nextPaymentIndex];
+
+      if (now.isAfter(nextPaymentDate)) {
+        daysOverdue = now.difference(nextPaymentDate).inDays;
+
+        // Calcular interés acumulado (ejemplo: 1% adicional por día de mora)
+        final dailyPenaltyRate = interestRate / 100 / 30; // 1/30 del interés mensual
+        accumulatedInterest = creditValue * dailyPenaltyRate * daysOverdue;
+      }
+    }
+
+    return {
+      'daysOverdue': daysOverdue,
+      'accumulatedInterest': accumulatedInterest,
+      'nextPaymentDate': nextPaymentDate,
+      'nextPaymentIndex': nextPaymentIndex,
+    };
+  }
+
   @override
   void dispose() {
     for (final controller in controllers.values) {
@@ -148,6 +185,10 @@ class _CobrosScreenState extends State<CobrosScreen> {
                           'date': Timestamp.fromDate(selectedDate),
                           'isActive': true,
                         },
+                        'lastPaymentDate': Timestamp.fromDate(selectedDate),
+                        'nextPaymentIndex': FieldValue.increment(1),
+                        'daysOverdue': 0, // Resetear días en mora
+                        'accumulatedInterest': 0.0, // Resetear interés acumulado
                       });
 
                       Navigator.of(context).pop();
@@ -294,6 +335,12 @@ class _CobrosScreenState extends State<CobrosScreen> {
 
               final puedeCerrar = totalAbonado >= total && _allPaymentsInactive(data);
 
+              // Calcular información de morosidad
+              final overdueInfo = _calculateOverdueInfo(data);
+              final daysOverdue = overdueInfo['daysOverdue'] as int;
+              final accumulatedInterest = overdueInfo['accumulatedInterest'] as double;
+              final nextPaymentDate = overdueInfo['nextPaymentDate'] as DateTime?;
+
               String? dayDisplay;
               if (data.containsKey('day')) {
                 final day = data['day'];
@@ -331,6 +378,14 @@ class _CobrosScreenState extends State<CobrosScreen> {
                     children: [
                       Card(
                         margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                        color:
+                            daysOverdue > 30
+                                ? Colors.red[900]
+                                : daysOverdue > 15
+                                ? Colors.red[600]
+                                : daysOverdue > 0
+                                ? Colors.red[300]
+                                : null,
                         child: InkWell(
                           onTap: () {
                             Navigator.push(
@@ -339,16 +394,125 @@ class _CobrosScreenState extends State<CobrosScreen> {
                             );
                           },
                           child: ListTile(
-                            title: Text('Cliente: $clientName'),
-                            subtitle: Text(
-                              'Crédito: \$${NumberFormat('#,##0', 'es_CO').format(creditValue)}\n'
-                              'Interés: ${interestPercent.toStringAsFixed(2)}%\n'
-                              'Forma de pago: ${data['method']}\n'
-                              '${dayDisplay != null ? 'Día: $dayDisplay\n' : ''}'
-                              'Total a pagar: \$${NumberFormat('#,##0', 'es_CO').format(total)}\n'
-                              'Abonado: \$${NumberFormat('#,##0', 'es_CO').format(totalAbonado)}\n'
-                              'Saldo faltante: \$${NumberFormat('#,##0', 'es_CO').format(saldoRestante)}\n'
-                              'Fecha: ${createdAt != null ? DateFormat('yyyy-MM-dd – kk:mm').format(createdAt) : 'N/A'}',
+                            title: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (daysOverdue == 0)
+                                  Text(
+                                    'Cliente: $clientName',
+                                    style: TextStyle(color: const Color.fromARGB(255, 0, 0, 0)),
+                                  )
+                                else if (daysOverdue > 0)
+                                  Text(
+                                    'Cliente: $clientName',
+                                    style: TextStyle(
+                                      color: const Color.fromARGB(255, 255, 255, 255),
+                                    ),
+                                  ),
+                              ],
+                            ),
+
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (daysOverdue == 0) ...[
+                                  Text(
+                                    'Crédito: \$${NumberFormat('#,##0', 'es_CO').format(creditValue)}',
+                                  ),
+                                  Text('Interés: ${interestPercent.toStringAsFixed(2)}%'),
+                                  Text('Forma de pago: ${data['method']}'),
+                                  if (dayDisplay != null) Text('Día: $dayDisplay'),
+                                  Text(
+                                    'Total a pagar: \$${NumberFormat('#,##0', 'es_CO').format(total)}',
+                                  ),
+                                  Text(
+                                    'Abonado: \$${NumberFormat('#,##0', 'es_CO').format(totalAbonado)}',
+                                  ),
+                                  Text(
+                                    'Saldo faltante: \$${NumberFormat('#,##0', 'es_CO').format(saldoRestante)}',
+                                  ),
+
+                                  // Nueva información de pagos y morosidad
+                                  if (nextPaymentDate != null)
+                                    Text(
+                                      'Próximo pago: ${DateFormat('yyyy-MM-dd').format(nextPaymentDate)}',
+                                    ),
+                                  Text(
+                                    'Fecha: ${createdAt != null ? DateFormat('yyyy-MM-dd – kk:mm').format(createdAt) : 'N/A'}',
+                                  ),
+                                ],
+
+                                if (daysOverdue > 0) ...[
+                                  Text(
+                                    'Crédito: \$${NumberFormat('#,##0', 'es_CO').format(creditValue)}',
+                                    style: TextStyle(
+                                      color: const Color.fromARGB(255, 255, 255, 255),
+                                    ),
+                                  ),
+                                  Text(
+                                    'Interés: ${interestPercent.toStringAsFixed(2)}%',
+                                    style: TextStyle(
+                                      color: const Color.fromARGB(255, 255, 255, 255),
+                                    ),
+                                  ),
+                                  Text(
+                                    'Forma de pago: ${data['method']}',
+                                    style: TextStyle(
+                                      color: const Color.fromARGB(255, 255, 255, 255),
+                                    ),
+                                  ),
+                                  if (dayDisplay != null)
+                                    Text(
+                                      'Día: $dayDisplay',
+                                      style: TextStyle(
+                                        color: const Color.fromARGB(255, 255, 255, 255),
+                                      ),
+                                    ),
+                                  Text(
+                                    'Total a pagar: \$${NumberFormat('#,##0', 'es_CO').format(total)}',
+                                    style: TextStyle(
+                                      color: const Color.fromARGB(255, 255, 255, 255),
+                                    ),
+                                  ),
+                                  Text(
+                                    'Abonado: \$${NumberFormat('#,##0', 'es_CO').format(totalAbonado)}',
+                                    style: TextStyle(
+                                      color: const Color.fromARGB(255, 255, 255, 255),
+                                    ),
+                                  ),
+                                  Text(
+                                    'Saldo faltante: \$${NumberFormat('#,##0', 'es_CO').format(saldoRestante)}',
+                                    style: TextStyle(
+                                      color: const Color.fromARGB(255, 255, 255, 255),
+                                    ),
+                                  ),
+                                  Text(
+                                    'Días en mora: $daysOverdue',
+                                    style: TextStyle(
+                                      color: const Color.fromARGB(255, 255, 255, 255),
+                                    ),
+                                  ),
+                                  Text(
+                                    'Interés acumulado: \$${NumberFormat('#,##0', 'es_CO').format(accumulatedInterest)}',
+                                    style: TextStyle(
+                                      color: const Color.fromARGB(255, 255, 255, 255),
+                                    ),
+                                  ),
+                                  if (nextPaymentDate != null)
+                                    Text(
+                                      'Próximo pago: ${DateFormat('yyyy-MM-dd').format(nextPaymentDate)}',
+                                      style: TextStyle(
+                                        color: const Color.fromARGB(255, 255, 255, 255),
+                                      ),
+                                    ),
+                                  Text(
+                                    'Fecha: ${createdAt != null ? DateFormat('yyyy-MM-dd – kk:mm').format(createdAt) : 'N/A'}',
+                                    style: TextStyle(
+                                      color: const Color.fromARGB(255, 255, 255, 255),
+                                    ),
+                                  ),
+                                ],
+                              ],
                             ),
                             trailing: Row(
                               mainAxisSize: MainAxisSize.min,

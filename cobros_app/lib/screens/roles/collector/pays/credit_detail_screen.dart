@@ -29,6 +29,9 @@ class CreditDetailScreen extends StatelessWidget {
         final pays =
             data.entries
                 .where((e) => e.key.startsWith('pay'))
+                .where(
+                  (e) => e.value is Map<String, dynamic>,
+                ) // Filtra solo los valores que son Map
                 .map((e) => MapEntry(e.key, e.value as Map<String, dynamic>))
                 .toList();
 

@@ -106,20 +106,24 @@ class _CollectorLiquidationScreenState extends State<CollectorLiquidationScreen>
 
       for (var entry in data.entries) {
         if (entry.key.startsWith('pay')) {
-          final pay = entry.value;
-          final payDate = (pay['date'] as Timestamp).toDate();
-          if (pay['isActive'] == true &&
-              DateFormat('yyyy-MM-dd').format(payDate) ==
-                  DateFormat('yyyy-MM-dd').format(selectedDate!)) {
-            fetchedPayments.add({
-              'clientName': clientName,
-              'amount': pay['amount'],
-              'date': payDate,
-              'creditRef': creditRef,
-              'payKey': entry.key,
-              'clientId': clientId,
-            });
-            collected += pay['amount'];
+          if (entry.value is Map<String, dynamic>) {
+            final pay = entry.value as Map<String, dynamic>;
+            final payDate = (pay['date'] as Timestamp).toDate();
+            if (pay['isActive'] == true &&
+                DateFormat('yyyy-MM-dd').format(payDate) ==
+                    DateFormat('yyyy-MM-dd').format(selectedDate!)) {
+              fetchedPayments.add({
+                'clientName': clientName,
+                'amount': pay['amount'],
+                'date': payDate,
+                'creditRef': creditRef,
+                'payKey': entry.key,
+                'clientId': clientId,
+              });
+              collected += pay['amount'];
+            }
+          } else {
+            debugPrint('⚠️ Valor inesperado en ${entry.key}: ${entry.value.runtimeType}');
           }
         }
       }
