@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:cobros_app/services/auth_service.dart';
-import 'package:cobros_app/screens/main_screen.dart';
+import '../services/auth_service.dart';
+import '../screens/main_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -69,6 +70,99 @@ class _LoginScreenState extends State<LoginScreen> {
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _resetPassword(BuildContext context) async {
+    final email = _emailController.text.trim();
+
+    // Si el campo de email está vacío, pedimos que lo ingresen
+    if (email.isEmpty) {
+      return showDialog(
+        context: context,
+        builder:
+            (context) => AlertDialog(
+              title: const Text('Restablecer contraseña'),
+              content: const Text(
+                'Por favor ingresa tu correo electrónico en el campo correspondiente',
+              ),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK')),
+              ],
+            ),
+      );
+    }
+
+    try {
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+
+      // Mostrar mensaje de éxito
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Se ha enviado un enlace de recuperación a $email'),
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    } on FirebaseAuthException catch (e) {
+      String errorMessage;
+      switch (e.code) {
+        case 'user-not-found':
+          errorMessage = 'No existe una cuenta con este correo electrónico';
+          break;
+        case 'invalid-email':
+          errorMessage = 'El correo electrónico no tiene un formato válido';
+          break;
+        default:
+          errorMessage = 'Ocurrió un error al enviar el correo de recuperación';
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(errorMessage),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Ocurrió un error inesperado'), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  Future<void> _contactSupport() async {
+    const phoneNumber = '+573506191443';
+    const message = 'Hola, estoy interesado en adquirir una cuenta para ingresar a la aplicacion';
+
+    final whatsappUrl = 'https://wa.me/$phoneNumber?text=${Uri.encodeComponent(message)}';
+    final smsUrl = 'sms:$phoneNumber?body=${Uri.encodeComponent(message)}';
+    final telUrl = 'tel:$phoneNumber';
+
+    if (await canLaunchUrl(Uri.parse(whatsappUrl))) {
+      await launchUrl(Uri.parse(whatsappUrl));
+    } else if (await canLaunchUrl(Uri.parse(smsUrl))) {
+      await launchUrl(Uri.parse(smsUrl));
+    } else if (await canLaunchUrl(Uri.parse(telUrl))) {
+      await launchUrl(Uri.parse(telUrl));
+    } else {
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder:
+              (context) => AlertDialog(
+                title: const Text('Contactar al soporte'),
+                content: const Text('No se encontró una aplicación de mensajería compatible.'),
+                actions: [
+                  TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK')),
+                ],
+              ),
+        );
       }
     }
   }
@@ -149,14 +243,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   Align(
                     alignment: Alignment.centerRight,
                     child: TextButton(
-                      onPressed: () {
-                        // Implementar recuperación de contraseña
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Función de recuperación de contraseña no implementada'),
-                          ),
-                        );
-                      },
+                      onPressed: () => _resetPassword(context),
                       child: const Text('¿Olvidaste tu contraseña?'),
                     ),
                   ),
@@ -197,15 +284,10 @@ class _LoginScreenState extends State<LoginScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Text('¿No tienes una cuenta?'),
+                      const Text('¿No tienes cuenta?'),
                       TextButton(
-                        onPressed: () {
-                          // Implementar navegación a pantalla de registro
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Función de registro no implementada')),
-                          );
-                        },
-                        child: const Text('Regístrate'),
+                        onPressed: () => _contactSupport(),
+                        child: const Text('Contactar al proveedor'),
                       ),
                     ],
                   ),

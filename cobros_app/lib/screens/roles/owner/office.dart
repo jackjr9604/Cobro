@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'edit_office.dart';
+import '../../../utils/app_theme.dart';
 
 class OfficeManagementScreen extends StatefulWidget {
   const OfficeManagementScreen({super.key});
@@ -191,7 +192,13 @@ class _OfficeManagementScreenState extends State<OfficeManagementScreen> {
                         ),
                       ).then((_) => _loadOffice()); // Al volver, recarga datos
                     },
-                    child: const Text('Editar oficina'),
+                    child: const Text(
+                      'Editar oficina',
+                      style: TextStyle(
+                        fontFamily: AppTheme.primaryFont,
+                        color: AppTheme.neutroColor,
+                      ),
+                    ),
                   ),
                 ]
                 : null,
@@ -209,7 +216,7 @@ class _OfficeManagementScreenState extends State<OfficeManagementScreen> {
                       children: [
                         const Text(
                           'Perfil de la Oficina',
-                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                          style: TextStyle(fontSize: 20, fontFamily: AppTheme.primaryFont),
                         ),
                         const SizedBox(height: 16),
                         _buildField('Nombre de la oficina', _nameController),

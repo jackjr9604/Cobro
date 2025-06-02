@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'users_detail_screen.dart';
 import 'offices_detail_screen.dart';
 
@@ -10,9 +11,10 @@ class AdminHomeScreen extends StatefulWidget {
   State<AdminHomeScreen> createState() => _AdminHomeScreenState();
 }
 
-class _AdminHomeScreenState extends State<AdminHomeScreen> {
+class _AdminHomeScreenState extends State<AdminHomeScreen> with WidgetsBindingObserver {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
+  // Variables de estadísticas
   int totalUsers = 0;
   int adminUsers = 0;
   int ownerUsers = 0;
@@ -23,39 +25,123 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   int assignedOffices = 0;
   int unassignedOffices = 0;
 
+  // Control de cache y estado
   bool isLoading = true;
+  bool _isRefreshing = false;
+  DateTime? _lastFetchTime;
+  Map<String, dynamic>? _cachedData;
+  static const Duration cacheDuration = kDebugMode ? Duration(seconds: 30) : Duration(minutes: 5);
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _fetchStatistics();
   }
 
-  Future<void> _fetchStatistics() async {
-    final users = _firestore.collection('users');
-    final offices = _firestore.collection('offices');
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
 
-    final totalUsersSnap = await users.count().get();
-    final adminSnap = await users.where('role', isEqualTo: 'admin').count().get();
-    final ownerSnap = await users.where('role', isEqualTo: 'owner').count().get();
-    final collectorSnap = await users.where('role', isEqualTo: 'collector').count().get();
-    final activeSnap = await users.where('isActive', isEqualTo: true).count().get();
-    final inactiveSnap = await users.where('isActive', isEqualTo: false).count().get();
-    final totalOfficesSnap = await offices.count().get();
-    final assignedOfficesSnap = await offices.where('createdBy', isNotEqualTo: null).count().get();
-    final unassignedSnap = await offices.where('createdBy', isEqualTo: null).count().get();
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      if (_lastFetchTime != null && DateTime.now().difference(_lastFetchTime!) > cacheDuration) {
+        _fetchStatistics(forceRefresh: true);
+      }
+    }
+  }
+
+  Future<void> _fetchStatistics({bool forceRefresh = false}) async {
+    try {
+      // Verificar si podemos usar datos cacheados
+      final now = DateTime.now();
+      final shouldUseCache =
+          !forceRefresh &&
+          _lastFetchTime != null &&
+          now.difference(_lastFetchTime!) < cacheDuration &&
+          _cachedData != null;
+
+      if (shouldUseCache) {
+        _applyCachedData();
+        return;
+      }
+
+      // Mostrar estado de carga adecuado
+      if (_cachedData == null) {
+        setState(() => isLoading = true);
+      } else {
+        setState(() => _isRefreshing = true);
+      }
+
+      // Ejecutar todas las consultas en paralelo
+      final users = _firestore.collection('users');
+      final offices = _firestore.collection('offices');
+
+      final results = await Future.wait([
+        users.count().get(),
+        users.where('role', isEqualTo: 'admin').count().get(),
+        users.where('role', isEqualTo: 'owner').count().get(),
+        users.where('role', isEqualTo: 'collector').count().get(),
+        users.where('isActive', isEqualTo: true).count().get(),
+        users.where('isActive', isEqualTo: false).count().get(),
+        offices.count().get(),
+        offices.where('createdBy', isNotEqualTo: null).count().get(),
+        offices.where('createdBy', isEqualTo: null).count().get(),
+      ]);
+
+      // Guardar en cache
+      final newData = {
+        'totalUsers': results[0].count ?? 0,
+        'adminUsers': results[1].count ?? 0,
+        'ownerUsers': results[2].count ?? 0,
+        'collectorUsers': results[3].count ?? 0,
+        'activeUsers': results[4].count ?? 0,
+        'inactiveUsers': results[5].count ?? 0,
+        'totalOffices': results[6].count ?? 0,
+        'assignedOffices': results[7].count ?? 0,
+        'unassignedOffices': results[8].count ?? 0,
+      };
+
+      _lastFetchTime = DateTime.now();
+      _cachedData = newData;
+
+      // Actualizar UI
+      setState(() {
+        _applyCachedData();
+        isLoading = false;
+        _isRefreshing = false;
+      });
+    } catch (e) {
+      setState(() {
+        isLoading = false;
+        _isRefreshing = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error al cargar datos: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  void _applyCachedData() {
+    if (_cachedData == null) return;
 
     setState(() {
-      totalUsers = totalUsersSnap.count ?? 0;
-      adminUsers = adminSnap.count ?? 0;
-      ownerUsers = ownerSnap.count ?? 0;
-      collectorUsers = collectorSnap.count ?? 0;
-      activeUsers = activeSnap.count ?? 0;
-      inactiveUsers = inactiveSnap.count ?? 0;
-      totalOffices = totalOfficesSnap.count ?? 0;
-      assignedOffices = assignedOfficesSnap.count ?? 0;
-      unassignedOffices = unassignedSnap.count ?? 0;
-      isLoading = false;
+      totalUsers = _cachedData!['totalUsers'];
+      adminUsers = _cachedData!['adminUsers'];
+      ownerUsers = _cachedData!['ownerUsers'];
+      collectorUsers = _cachedData!['collectorUsers'];
+      activeUsers = _cachedData!['activeUsers'];
+      inactiveUsers = _cachedData!['inactiveUsers'];
+      totalOffices = _cachedData!['totalOffices'];
+      assignedOffices = _cachedData!['assignedOffices'];
+      unassignedOffices = _cachedData!['unassignedOffices'];
     });
   }
 
@@ -63,8 +149,8 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     return GestureDetector(
       onTap: onTap,
       child: SizedBox(
-        width: double.infinity, // Ocupa todo el ancho posible
-        height: 120, // Ajusta esto según el tamaño deseado
+        width: double.infinity,
+        height: 120,
         child: Card(
           color: color,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -114,131 +200,174 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     if (isLoading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Panel de Administración')),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            // Sección de Usuarios
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Usuarios', style: Theme.of(context).textTheme.titleLarge),
-                  const SizedBox(height: 16),
-                  // Sección responsive para tarjetas de usuarios
-                  LayoutBuilder(
-                    builder: (context, constraints) {
-                      int columns = constraints.maxWidth > 600 ? 3 : 3;
-                      return GridView.builder(
-                        shrinkWrap: true, // Evita que el GridView tome mucho espacio
-                        physics: const NeverScrollableScrollPhysics(),
-                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: columns, // Número de columnas
-                          crossAxisSpacing: 8, // Espacio entre las tarjetas horizontalmente
-                          mainAxisSpacing: 8, // Espacio entre las tarjetas verticalmente
-                          childAspectRatio: 1.5, // Ajuste la relación de aspecto (ancho/alto)
-                        ),
-                        itemCount: 6, // 6 tarjetas de usuarios
-                        itemBuilder: (context, index) {
-                          List<String> titles = [
-                            'Totales',
-                            'Admins',
-                            'Owners',
-                            'Collectors',
-                            'Activos',
-                            'Inactivos',
-                          ];
-                          List<int> counts = [
-                            totalUsers,
-                            adminUsers,
-                            ownerUsers,
-                            collectorUsers,
-                            activeUsers,
-                            inactiveUsers,
-                          ];
-                          List<Color> colors = [
-                            Colors.blue,
-                            Colors.green,
-                            Colors.orange,
-                            Colors.purple,
-                            Colors.teal,
-                            Colors.red,
-                          ];
-                          List<UserFilter> filters = [
-                            UserFilter.all,
-                            UserFilter.admin,
-                            UserFilter.owner,
-                            UserFilter.collector,
-                            UserFilter.active,
-                            UserFilter.inactive,
-                          ];
-
-                          return _buildStatCard(titles[index], counts[index], colors[index], () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => UsersDetailScreen(filter: filters[index]),
-                              ),
-                            );
-                          });
-                        },
-                      );
-                    },
-                  ),
-                ],
+      appBar: AppBar(
+        title: const Text('Panel de Administración'),
+        actions: [
+          Stack(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.refresh),
+                onPressed: () => _fetchStatistics(forceRefresh: true),
+                tooltip: 'Recargar datos',
               ),
-            ),
-
-            // Sección de Oficinas
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Oficinas', style: Theme.of(context).textTheme.titleLarge),
-                  const SizedBox(height: 16),
-                  // Sección responsive para tarjetas de oficinas
-                  LayoutBuilder(
-                    builder: (context, constraints) {
-                      int columns = constraints.maxWidth > 600 ? 3 : 3;
-                      return GridView.builder(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: columns, // Número de columnas
-                          crossAxisSpacing: 8, // Espacio entre las tarjetas horizontalmente
-                          mainAxisSpacing: 8, // Espacio entre las tarjetas verticalmente
-                          childAspectRatio: 1.5, // Ajuste la relación de aspecto (ancho/alto)
-                        ),
-                        itemCount: 3, // 3 tarjetas de oficinas
-                        itemBuilder: (context, index) {
-                          List<String> titles = ['Totales', 'Asignadas', 'Sin Dueño'];
-                          List<int> counts = [totalOffices, assignedOffices, unassignedOffices];
-                          List<Color> colors = [Colors.indigo, Colors.brown, Colors.black54];
-                          List<OfficeFilter> filters = [
-                            OfficeFilter.all,
-                            OfficeFilter.assigned,
-                            OfficeFilter.unassigned,
-                          ];
-
-                          return _buildStatCard(titles[index], counts[index], colors[index], () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => OfficesDetailScreen(filter: filters[index]),
-                              ),
-                            );
-                          });
-                        },
-                      );
-                    },
+              if (_isRefreshing)
+                Positioned(
+                  right: 8,
+                  top: 8,
+                  child: Container(
+                    padding: const EdgeInsets.all(2),
+                    decoration: BoxDecoration(
+                      color: Colors.blue,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                    child: const SizedBox(
+                      width: 12,
+                      height: 12,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    ),
                   ),
-                ],
+                ),
+            ],
+          ),
+        ],
+      ),
+      body: RefreshIndicator(
+        onRefresh: () => _fetchStatistics(forceRefresh: true),
+        child: SingleChildScrollView(
+          child: Column(
+            children: [
+              // Sección de Usuarios
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Usuarios', style: Theme.of(context).textTheme.titleLarge),
+                    const SizedBox(height: 16),
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        int columns =
+                            constraints.maxWidth > 1000
+                                ? 4
+                                : constraints.maxWidth > 600
+                                ? 3
+                                : 2;
+                        return GridView.builder(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: columns,
+                            crossAxisSpacing: 8,
+                            mainAxisSpacing: 8,
+                            childAspectRatio: 1.5,
+                          ),
+                          itemCount: 6,
+                          itemBuilder: (context, index) {
+                            List<String> titles = [
+                              'Totales',
+                              'Admins',
+                              'Owners',
+                              'Collectors',
+                              'Activos',
+                              'Inactivos',
+                            ];
+                            List<int> counts = [
+                              totalUsers,
+                              adminUsers,
+                              ownerUsers,
+                              collectorUsers,
+                              activeUsers,
+                              inactiveUsers,
+                            ];
+                            List<Color> colors = [
+                              Colors.blue,
+                              Colors.green,
+                              Colors.orange,
+                              Colors.purple,
+                              Colors.teal,
+                              Colors.red,
+                            ];
+                            List<UserFilter> filters = [
+                              UserFilter.all,
+                              UserFilter.admin,
+                              UserFilter.owner,
+                              UserFilter.collector,
+                              UserFilter.active,
+                              UserFilter.inactive,
+                            ];
+
+                            return _buildStatCard(titles[index], counts[index], colors[index], () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => UsersDetailScreen(filter: filters[index]),
+                                ),
+                              );
+                            });
+                          },
+                        );
+                      },
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+
+              // Sección de Oficinas
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Oficinas', style: Theme.of(context).textTheme.titleLarge),
+                    const SizedBox(height: 16),
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        int columns =
+                            constraints.maxWidth > 1000
+                                ? 3
+                                : constraints.maxWidth > 600
+                                ? 2
+                                : 1;
+                        return GridView.builder(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: columns,
+                            crossAxisSpacing: 8,
+                            mainAxisSpacing: 8,
+                            childAspectRatio: 1.5,
+                          ),
+                          itemCount: 3,
+                          itemBuilder: (context, index) {
+                            List<String> titles = ['Totales', 'Asignadas', 'Sin Dueño'];
+                            List<int> counts = [totalOffices, assignedOffices, unassignedOffices];
+                            List<Color> colors = [Colors.indigo, Colors.brown, Colors.black54];
+                            List<OfficeFilter> filters = [
+                              OfficeFilter.all,
+                              OfficeFilter.assigned,
+                              OfficeFilter.unassigned,
+                            ];
+
+                            return _buildStatCard(titles[index], counts[index], colors[index], () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => OfficesDetailScreen(filter: filters[index]),
+                                ),
+                              );
+                            });
+                          },
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

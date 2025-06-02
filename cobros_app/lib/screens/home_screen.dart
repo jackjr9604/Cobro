@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../utils/responsive.dart'; // Importamos nuestro helper de responsividad
-import 'roles/collector/pays/cobros_actives_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});

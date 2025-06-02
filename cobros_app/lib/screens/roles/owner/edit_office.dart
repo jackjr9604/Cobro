@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import '../../../utils/responsive.dart';
+import '../../../utils/app_theme.dart';
 
 class EditOfficeScreen extends StatefulWidget {
   final String officeId;
@@ -108,7 +109,13 @@ class _EditOfficeScreenState extends State<EditOfficeScreen> {
                         ElevatedButton.icon(
                           onPressed: _saveChanges,
                           icon: const Icon(Icons.save),
-                          label: const Text('Guardar cambios'),
+                          label: const Text(
+                            'Guardar cambios',
+                            style: TextStyle(
+                              fontFamily: AppTheme.primaryFont,
+                              color: AppTheme.neutroColor,
+                            ),
+                          ),
                           style: ElevatedButton.styleFrom(
                             padding: EdgeInsets.symmetric(
                               vertical: Responsive.isMobile(context) ? 14 : 18,

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
+import '../../../utils/app_theme.dart';
 
 import 'package:flutter/services.dart';
 
@@ -174,7 +175,10 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context, _pwController.text),
-                  child: const Text('Confirmar'),
+                  child: const Text(
+                    'Confirmar',
+                    style: TextStyle(fontFamily: AppTheme.primaryFont, color: AppTheme.neutroColor),
+                  ),
                 ),
               ],
             );
@@ -231,13 +235,19 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
                   children: [
                     TextFormField(
                       controller: _nameController,
-                      decoration: const InputDecoration(labelText: 'Nombre completo'),
+                      decoration: const InputDecoration(
+                        labelText: 'Nombre completo',
+                        labelStyle: TextStyle(color: AppTheme.textColor),
+                      ),
                       validator:
                           (value) => value == null || value.isEmpty ? 'Ingrese un nombre' : null,
                     ),
                     TextFormField(
                       controller: _emailController,
-                      decoration: const InputDecoration(labelText: 'Correo electrónico'),
+                      decoration: const InputDecoration(
+                        labelText: 'Correo electrónico',
+                        labelStyle: TextStyle(color: AppTheme.textColor),
+                      ),
                       validator:
                           (value) =>
                               value == null || value.isEmpty ? 'Ingrese un correo válido' : null,
@@ -245,7 +255,10 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
                     TextFormField(
                       controller: _passwordController,
                       obscureText: true,
-                      decoration: const InputDecoration(labelText: 'Contraseña'),
+                      decoration: const InputDecoration(
+                        labelText: 'Contraseña',
+                        labelStyle: TextStyle(color: AppTheme.textColor),
+                      ),
                       validator:
                           (value) =>
                               value == null || value.length < 6 ? 'Mínimo 6 caracteres' : null,
@@ -253,7 +266,10 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
                     const SizedBox(height: 10),
                     ElevatedButton(
                       onPressed: registerCollector,
-                      child: const Text('Registrar Collector'),
+                      child: const Text(
+                        'Registrar Collector',
+                        style: TextStyle(color: AppTheme.neutroColor),
+                      ),
                     ),
                   ],
                 ),
@@ -315,6 +331,7 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
                                         controller: nameController,
                                         decoration: const InputDecoration(
                                           labelText: 'Editar nombre',
+                                          labelStyle: TextStyle(color: AppTheme.textColor),
                                         ),
                                       ),
                                       TextFormField(
@@ -322,7 +339,9 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
                                         keyboardType: TextInputType.number,
                                         decoration: InputDecoration(
                                           labelText: 'Base',
+                                          labelStyle: TextStyle(color: AppTheme.textColor),
                                           prefixText: '\$',
+                                          prefixStyle: TextStyle(color: AppTheme.primaryColor),
                                         ),
                                         inputFormatters: [ThousandsSeparatorInputFormatter()],
                                       ),
@@ -345,7 +364,10 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
                                             collector['isActive'] ?? true,
                                           );
                                         },
-                                        child: const Text('Guardar'),
+                                        child: const Text(
+                                          'Guardar',
+                                          style: TextStyle(color: AppTheme.neutroColor),
+                                        ),
                                       ),
                                     ],
                                   ),

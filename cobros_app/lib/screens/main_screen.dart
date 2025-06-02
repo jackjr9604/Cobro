@@ -1,5 +1,5 @@
-import 'package:cobros_app/screens/roles/admin/offices_screen.dart';
-import 'package:cobros_app/screens/roles/admin/users_screen.dart';
+import '../screens/roles/admin/offices_screen.dart';
+import '../screens/roles/admin/users_screen.dart';
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../services/user_service.dart';
@@ -13,6 +13,7 @@ import 'roles/owner/office.dart';
 import 'clients/clients_Screen.dart';
 import 'roles/owner/routes/Liquidation_Report_Screen.dart';
 import '../screens/roles/owner/routes/routes_screen.dart';
+import '../utils/app_theme.dart';
 
 class MainScreen extends StatefulWidget {
   final String userRole; // Añade este parámetro
@@ -21,6 +22,35 @@ class MainScreen extends StatefulWidget {
 
   @override
   State<MainScreen> createState() => _MainScreenState();
+}
+
+class RoleHelper {
+  static String getRoleName(String? roleId, {String defaultName = 'Usuario'}) {
+    switch (roleId) {
+      case 'admin':
+        return 'Admin';
+      case 'owner':
+        return 'Oficina';
+      case 'collector':
+        return 'Cobrador';
+      default:
+        return defaultName;
+    }
+  }
+
+  // Opcional: Método para obtener icono según rol
+  static IconData getRoleIcon(String? roleId) {
+    switch (roleId) {
+      case 'admin':
+        return Icons.admin_panel_settings;
+      case 'owner':
+        return Icons.business;
+      case 'collector':
+        return Icons.attach_money;
+      default:
+        return Icons.person;
+    }
+  }
 }
 
 class _MainScreenState extends State<MainScreen> {
@@ -208,37 +238,27 @@ class _MainScreenState extends State<MainScreen> {
   Widget _buildAppBarTitle() {
     if (_isLoading) return const Text('Cargando...');
 
-    String roleName;
-    switch (_currentUserData?['role']) {
-      case 'admin':
-        roleName = 'Admin';
-        break;
-      case 'owner':
-        roleName = 'Oficina';
-        break;
-      case 'collector':
-        roleName = 'Cobrador';
-        break;
-      default:
-        roleName = 'Usuario';
-    }
+    String roleName = RoleHelper.getRoleName(_currentUserData?['role']);
+    IconData roleIcon = RoleHelper.getRoleIcon(_currentUserData?['role']);
 
     return Row(
       children: [
         Text(
           'CLIQ',
           style: TextStyle(
-            fontFamily: 'roboto', //nombre de tu fuente
+            fontFamily: AppTheme.primaryFont, //nombre de tu fuente
             fontSize: 24, // Tamaño de la fuente
-            color: Colors.white, // Color del texto
+            color: AppTheme.neutroColor, // Color del texto
             fontWeight: FontWeight.bold, // Peso de la fuente (opcional)
           ),
         ),
-        const SizedBox(width: 20), // Espacio entre "CLIQ" y el roleName
+        const SizedBox(width: 20),
+        Icon(roleIcon, color: AppTheme.neutroColor),
+        const SizedBox(width: 8),
         Text(
           '$roleName',
           style: TextStyle(
-            fontFamily: 'arial', //nombre de tu fuente
+            fontFamily: AppTheme.secondaryFont, //nombre de tu fuente
             fontSize: 15, // Tamaño de la fuente
             color: Colors.white, // Color del texto
           ),
@@ -256,6 +276,7 @@ class _MainScreenState extends State<MainScreen> {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(_currentUserData?['email'] ?? 'No disponible'),
+                backgroundColor: AppTheme.primaryColor,
                 duration: const Duration(seconds: 3),
               ),
             );
@@ -270,10 +291,59 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   Widget _buildDrawer(BuildContext context) {
-    return Drawer(child: ListView(padding: EdgeInsets.zero, children: _getMenuItems(context)));
+    String roleName = RoleHelper.getRoleName(_currentUserData?['role']);
+    return Drawer(
+      width: MediaQuery.of(context).size.width * 0.8,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.horizontal(right: Radius.circular(20)),
+      ),
+      elevation: 16, //sombra
+      child: Container(
+        decoration: BoxDecoration(color: Colors.white70),
+        child: Column(
+          children: [
+            UserAccountsDrawerHeader(
+              accountName: Text(
+                '$roleName',
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              accountEmail: Text(
+                _currentUserData?['email'] ?? 'ejemplo@ejemplo.com',
+                style: const TextStyle(fontSize: 14),
+              ),
+              currentAccountPicture: CircleAvatar(
+                radius: 30,
+                backgroundColor: AppTheme.neutroColor,
+                child: Icon(Icons.person, size: 40, color: AppTheme.primaryColor),
+              ),
+              decoration: BoxDecoration(color: AppTheme.primaryColor),
+            ),
+            Expanded(
+              child: ListView(
+                padding: EdgeInsets.zero,
+                children: [
+                  ..._getMenuItems(context).whereType<Widget>().toList(),
+                  const Padding(
+                    padding: EdgeInsets.all(16.0),
+                    child: Text(
+                      'Version 1.0.0',
+                      style: TextStyle(color: AppTheme.primaryColor, fontSize: 12),
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildDesktopMenu(BuildContext context) {
+    String roleName = RoleHelper.getRoleName(_currentUserData?['role']);
+    IconData roleIcon = RoleHelper.getRoleIcon(_currentUserData?['role']);
+
     return Container(
       width: 250,
       color: Colors.blue[50],
@@ -281,7 +351,7 @@ class _MainScreenState extends State<MainScreen> {
         children: [
           Container(
             height: 150,
-            color: Colors.blue,
+            color: AppTheme.primaryColor,
             padding: const EdgeInsets.all(16),
             child: Center(
               child: Column(
@@ -289,20 +359,13 @@ class _MainScreenState extends State<MainScreen> {
                 children: [
                   CircleAvatar(
                     radius: 30,
-                    backgroundImage:
-                        _currentUserData?['photoUrl'] != null
-                            ? NetworkImage(_currentUserData!['photoUrl'])
-                            : null,
-                    child:
-                        _currentUserData?['photoUrl'] == null
-                            ? const Icon(Icons.person, size: 30)
-                            : null,
+                    backgroundColor: AppTheme.neutroColor,
+                    child: Icon(Icons.person, size: 40, color: AppTheme.primaryColor),
                   ),
                   const SizedBox(height: 8),
-                  Text(
-                    _currentUserData?['displayName'] ?? 'Usuario',
-                    style: const TextStyle(color: Colors.white),
-                  ),
+                  Icon(roleIcon, color: AppTheme.neutroColor),
+                  SizedBox(width: 8),
+                  Text('$roleName', style: const TextStyle(color: Colors.white)),
                 ],
               ),
             ),

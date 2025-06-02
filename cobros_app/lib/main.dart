@@ -9,6 +9,7 @@ import 'screens/main_screen.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'services/user_service.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import '/utils/app_theme.dart';
 
 Future<void> main() async {
   // 0. Inicializar sqflite_common_ffi para desktop
@@ -50,11 +51,7 @@ class AuthWrapper extends StatelessWidget {
     return MaterialApp(
       title: 'App de Cobros',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-        useMaterial3: true,
-        visualDensity: VisualDensity.adaptivePlatformDensity,
-      ),
+      theme: AppTheme.lightTheme,
       home: StreamBuilder<User?>(
         stream: FirebaseAuth.instance.authStateChanges(),
         builder: (context, snapshot) {
