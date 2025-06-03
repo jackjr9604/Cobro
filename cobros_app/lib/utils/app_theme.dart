@@ -9,6 +9,7 @@ class AppTheme {
   static const Color successColor = Color(0xFF34C759); // Verde para éxito
   static const Color textColor = Color(0xFF2E384D); // Color de texto principal
   static const Color lightTextColor = Color(0xFFB0BAC9); // Texto secundario
+  static const Color textLabel = Color.fromARGB(118, 0, 77, 122); // Texto label
 
   // Nombres de fuentes (deben coincidir con las cargadas en pubspec.yaml)
   static const String primaryFont = 'Roboto';

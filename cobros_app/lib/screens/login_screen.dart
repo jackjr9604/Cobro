@@ -3,6 +3,7 @@ import '../services/auth_service.dart';
 import '../screens/main_screen.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../utils/app_theme.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -186,7 +187,11 @@ class _LoginScreenState extends State<LoginScreen> {
                   const SizedBox(height: 32),
                   Text(
                     'Iniciar Sesión',
-                    style: Theme.of(context).textTheme.headlineMedium,
+                    style: TextStyle(
+                      color: AppTheme.primaryColor,
+                      fontFamily: AppTheme.primaryFont,
+                      fontSize: 25,
+                    ),
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 32),
@@ -196,8 +201,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     controller: _emailController,
                     decoration: const InputDecoration(
                       labelText: 'Correo electrónico',
-                      prefixIcon: Icon(Icons.email),
+                      prefixIcon: Icon(Icons.email, color: AppTheme.primaryColor),
                       border: OutlineInputBorder(),
+                      labelStyle: TextStyle(color: AppTheme.textLabel),
                     ),
                     keyboardType: TextInputType.emailAddress,
                     validator: (value) {
@@ -217,9 +223,14 @@ class _LoginScreenState extends State<LoginScreen> {
                     controller: _passwordController,
                     decoration: InputDecoration(
                       labelText: 'Contraseña',
-                      prefixIcon: const Icon(Icons.lock),
+                      labelStyle: TextStyle(color: AppTheme.textLabel),
+                      prefixIcon: const Icon(Icons.lock, color: AppTheme.primaryColor),
+
                       suffixIcon: IconButton(
-                        icon: Icon(_obscurePassword ? Icons.visibility : Icons.visibility_off),
+                        icon: Icon(
+                          _obscurePassword ? Icons.visibility : Icons.visibility_off,
+                          color: AppTheme.primaryColor,
+                        ),
                         onPressed: () {
                           setState(() => _obscurePassword = !_obscurePassword);
                         },
@@ -276,7 +287,10 @@ class _LoginScreenState extends State<LoginScreen> {
                                 valueColor: AlwaysStoppedAnimation(Colors.white),
                               ),
                             )
-                            : const Text('INICIAR SESIÓN'),
+                            : const Text(
+                              'INICIAR SESIÓN',
+                              style: TextStyle(color: AppTheme.neutroColor),
+                            ),
                   ),
                   const SizedBox(height: 16),
 
