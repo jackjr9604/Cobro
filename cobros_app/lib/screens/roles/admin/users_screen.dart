@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/services.dart'; // para Clipboard
+import 'package:flutter/services.dart';
+import 'package:intl/intl.dart'; // para Clipboard
 
 class UsersScreen extends StatelessWidget {
   const UsersScreen({super.key});
@@ -17,10 +18,7 @@ class UsersScreen extends StatelessWidget {
           IconButton(
             icon: const Icon(Icons.add),
             onPressed: () {
-              showDialog(
-                context: context,
-                builder: (_) => const AddUserDialog(),
-              );
+              showDialog(context: context, builder: (_) => const AddUserDialog());
             },
           ),
         ],
@@ -54,7 +52,10 @@ class UsersScreen extends StatelessWidget {
               final displayName = data?['displayName'] ?? 'Sin nombre';
               final email = data?['email'] ?? 'Sin correo';
               final role = data?['role'] ?? 'Sin rol';
-              final isActive = data?['isActive'] ?? false;
+              final activeStatus = data?['activeStatus'] ?? {'isActive': false};
+              final isActive = activeStatus['isActive'] ?? false;
+              final startDate = activeStatus['startDate']?.toDate();
+              final endDate = activeStatus['endDate']?.toDate();
               final timestamp = data?['createdAt'];
               final createdAt =
                   (timestamp is Timestamp)
@@ -66,16 +67,10 @@ class UsersScreen extends StatelessWidget {
                 children: [
                   if (isCurrentUser)
                     Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       child: Text(
                         '⚠️ Este es tu usuario actual. No lo elimines por accidente.',
-                        style: TextStyle(
-                          color: Colors.red[700],
-                          fontWeight: FontWeight.bold,
-                        ),
+                        style: TextStyle(color: Colors.red[700], fontWeight: FontWeight.bold),
                       ),
                     ),
                   Card(
@@ -85,11 +80,7 @@ class UsersScreen extends StatelessWidget {
                       onTap: () {
                         showDialog(
                           context: context,
-                          builder:
-                              (_) => EditUserDialog(
-                                userId: user.id,
-                                currentData: data ?? {},
-                              ),
+                          builder: (_) => EditUserDialog(userId: user.id, currentData: data ?? {}),
                         );
                       },
                       child: Padding(
@@ -104,6 +95,15 @@ class UsersScreen extends StatelessWidget {
                                   Text('Nombre: $displayName'),
                                   Text('Email: $email'),
                                   Text('Rol: $role'),
+                                  Text('Creado: $createdAt'),
+                                  if (startDate != null)
+                                    Text(
+                                      'Activo desde: ${DateFormat('dd/MM/yyyy').format(startDate)}',
+                                    ),
+                                  if (endDate != null)
+                                    Text(
+                                      'Activo hasta: ${DateFormat('dd/MM/yyyy').format(endDate)}',
+                                    ),
                                   Text('Creado: $createdAt'),
                                 ],
                               ),
@@ -144,17 +144,18 @@ class _AddUserDialogState extends State<AddUserDialog> {
   final _passwordController = TextEditingController();
   String _selectedRole = 'admin';
   bool _loading = false;
+  DateTime? _startDate;
+  DateTime? _endDate;
 
   final _roles = ['admin', 'owner', 'collector'];
 
   Future<void> _createUser() async {
     try {
       setState(() => _loading = true);
-      final userCredential = await FirebaseAuth.instance
-          .createUserWithEmailAndPassword(
-            email: _emailController.text.trim(),
-            password: _passwordController.text.trim(),
-          );
+      final userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+        email: _emailController.text.trim(),
+        password: _passwordController.text.trim(),
+      );
 
       final uid = userCredential.user!.uid;
       final now = Timestamp.now();
@@ -164,15 +165,19 @@ class _AddUserDialogState extends State<AddUserDialog> {
         'displayName': _nameController.text.trim(),
         'email': _emailController.text.trim(),
         'role': _selectedRole,
-        'isActive': false,
+        'activeStatus': {
+          'isActive': false,
+          'startDate': _startDate != null ? Timestamp.fromDate(_startDate!) : null,
+          'endDate': _endDate != null ? Timestamp.fromDate(_endDate!) : null,
+        },
         'createdAt': now,
       });
 
       if (mounted) Navigator.pop(context);
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Usuario creado exitosamente')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Usuario creado exitosamente')));
     } on FirebaseAuthException catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -184,11 +189,27 @@ class _AddUserDialogState extends State<AddUserDialog> {
         ),
       );
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Error inesperado: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error inesperado: $e')));
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _selectDate(BuildContext context, bool isStartDate) async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now(),
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+    );
+    if (picked != null) {
+      setState(() {
+        if (isStartDate) {
+          _startDate = picked;
+        } else {
+          _endDate = picked;
+        }
+      });
     }
   }
 
@@ -218,16 +239,41 @@ class _AddUserDialogState extends State<AddUserDialog> {
             DropdownButtonFormField<String>(
               value: _selectedRole,
               items:
-                  _roles
-                      .map(
-                        (role) =>
-                            DropdownMenuItem(value: role, child: Text(role)),
-                      )
-                      .toList(),
+                  _roles.map((role) => DropdownMenuItem(value: role, child: Text(role))).toList(),
               onChanged: (value) {
                 if (value != null) setState(() => _selectedRole = value);
               },
               decoration: const InputDecoration(labelText: 'Rol'),
+            ),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _startDate == null
+                        ? 'Fechainicio no seleccionada'
+                        : 'Inicio: ${DateFormat('dd/MM/yyyy').format(_startDate!)}',
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => _selectDate(context, true),
+                  child: const Text('Seleccionar'),
+                ),
+              ],
+            ),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _endDate == null
+                        ? 'Fecha final no encontrada'
+                        : 'Fin: ${DateFormat('dd/MM/yyyy').format(_endDate!)}',
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => _selectDate(context, false),
+                  child: const Text('Seleccionar'),
+                ),
+              ],
             ),
           ],
         ),
@@ -260,11 +306,7 @@ class EditUserDialog extends StatefulWidget {
   final String userId;
   final Map<String, dynamic> currentData;
 
-  const EditUserDialog({
-    super.key,
-    required this.userId,
-    required this.currentData,
-  });
+  const EditUserDialog({super.key, required this.userId, required this.currentData});
 
   @override
   State<EditUserDialog> createState() => _EditUserDialogState();
@@ -277,21 +319,25 @@ class _EditUserDialogState extends State<EditUserDialog> {
   late String _selectedRole;
   bool _isActive = false;
   bool _loading = false;
+  late Map<String, dynamic> _activeStatus;
+  DateTime? _tempStartDate;
+  DateTime? _tempEndDate;
 
   final List<String> _roles = ['admin', 'owner', 'collector'];
 
   @override
   void initState() {
     super.initState();
-    _nameController = TextEditingController(
-      text: widget.currentData['displayName'] ?? '',
-    );
-    _emailController = TextEditingController(
-      text: widget.currentData['email'] ?? '',
-    );
+    _nameController = TextEditingController(text: widget.currentData['displayName'] ?? '');
+    _emailController = TextEditingController(text: widget.currentData['email'] ?? '');
     _selectedRole = widget.currentData['role'] ?? 'admin';
     _isActive = widget.currentData['isActive'] ?? false;
     _deleteConfirmController = TextEditingController();
+    _activeStatus =
+        widget.currentData['activeStatus'] ??
+        {'isActive': false, 'startDate': null, 'endDate': null};
+    _tempStartDate = _activeStatus['startDate']?.toDate();
+    _tempEndDate = _activeStatus['endDate']?.toDate();
   }
 
   @override
@@ -303,22 +349,29 @@ class _EditUserDialogState extends State<EditUserDialog> {
   }
 
   Future<void> _saveChanges() async {
+    if (_tempStartDate != null && _tempEndDate != null && _tempStartDate!.isAfter(_tempEndDate!)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('La fecha de inicio debe ser anterior a la fecha final')),
+      );
+      return;
+    }
     setState(() => _loading = true);
     try {
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(widget.userId)
-          .update({
-            'displayName': _nameController.text.trim(),
-            'email': _emailController.text.trim(),
-            'role': _selectedRole,
-            'isActive': _isActive,
-          });
+      await FirebaseFirestore.instance.collection('users').doc(widget.userId).update({
+        'displayName': _nameController.text.trim(),
+        'email': _emailController.text.trim(),
+        'role': _selectedRole,
+        'activeStatus': {
+          'isActive': _activeStatus['isActive'],
+          'startDate': _tempStartDate != null ? Timestamp.fromDate(_tempStartDate!) : null,
+          'endDate': _tempEndDate != null ? Timestamp.fromDate(_tempEndDate!) : null,
+        },
+      });
 
       if (mounted) Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Usuario actualizado correctamente')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Usuario actualizado correctamente')));
     } catch (e) {
       ScaffoldMessenger.of(
         context,
@@ -328,29 +381,42 @@ class _EditUserDialogState extends State<EditUserDialog> {
     }
   }
 
+  Future<void> _selectDate(BuildContext context, bool isStartDate) async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: isStartDate ? _tempStartDate ?? DateTime.now() : _tempEndDate ?? DateTime.now(),
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+    );
+    if (picked != null) {
+      setState(() {
+        if (isStartDate) {
+          _tempStartDate = picked;
+        } else {
+          _tempEndDate = picked;
+        }
+      });
+    }
+  }
+
   Future<void> _deleteUser() async {
     if (_deleteConfirmController.text.trim() != 'Eliminar') {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('¡Confirmación incorrecta!')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('¡Confirmación incorrecta!')));
       return;
     }
 
     setState(() => _loading = true);
     try {
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(widget.userId)
-          .delete();
+      await FirebaseFirestore.instance.collection('users').doc(widget.userId).delete();
 
       if (mounted) Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Usuario eliminado correctamente')),
-      );
-    } catch (e) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Error al eliminar: $e')));
+      ).showSnackBar(const SnackBar(content: Text('Usuario eliminado correctamente')));
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al eliminar: $e')));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -384,12 +450,7 @@ class _EditUserDialogState extends State<EditUserDialog> {
             DropdownButtonFormField<String>(
               value: _selectedRole,
               items:
-                  _roles
-                      .map(
-                        (role) =>
-                            DropdownMenuItem(value: role, child: Text(role)),
-                      )
-                      .toList(),
+                  _roles.map((role) => DropdownMenuItem(value: role, child: Text(role))).toList(),
               onChanged: (value) {
                 if (value != null) setState(() => _selectedRole = value);
               },
@@ -400,15 +461,8 @@ class _EditUserDialogState extends State<EditUserDialog> {
             Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                const Text(
-                  'UID: ',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-                Expanded(
-                  child: SelectableText(
-                    widget.currentData['uid'] ?? 'Desconocido',
-                  ),
-                ),
+                const Text('UID: ', style: TextStyle(fontWeight: FontWeight.bold)),
+                Expanded(child: SelectableText(widget.currentData['uid'] ?? 'Desconocido')),
                 IconButton(
                   icon: const Icon(Icons.copy, size: 20),
                   tooltip: 'Copiar UID',
@@ -416,11 +470,9 @@ class _EditUserDialogState extends State<EditUserDialog> {
                     final uid = widget.currentData['uid'] ?? '';
                     if (uid.isNotEmpty) {
                       Clipboard.setData(ClipboardData(text: uid));
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('UID copiado al portapapeles'),
-                        ),
-                      );
+                      ScaffoldMessenger.of(
+                        context,
+                      ).showSnackBar(const SnackBar(content: Text('UID copiado al portapapeles')));
                     }
                   },
                 ),
@@ -431,22 +483,51 @@ class _EditUserDialogState extends State<EditUserDialog> {
               children: [
                 const Text('Activo'),
                 Switch(
-                  value: _isActive,
-                  onChanged: (value) => setState(() => _isActive = value),
+                  value: _activeStatus['isActive'] ?? false,
+                  onChanged:
+                      (value) => setState(() {
+                        _activeStatus['isActive'] = value;
+                      }),
+                ),
+              ],
+            ),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _tempStartDate == null
+                        ? 'Fecha inicio no seleccionada'
+                        : 'Inicio: ${DateFormat('dd/MM/yyyy').format(_tempStartDate!)}',
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => _selectDate(context, true),
+                  child: const Text('Cambiar'),
+                ),
+              ],
+            ),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _tempEndDate == null
+                        ? 'Fecha final no seleccionada'
+                        : 'Inicio: ${DateFormat('dd/MM/yyyy').format(_tempEndDate!)}',
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => _selectDate(context, false),
+                  child: const Text('Cambiar'),
                 ),
               ],
             ),
             const SizedBox(height: 20),
 
             // Confirmación para eliminar
-            const Text(
-              'Si deseas eliminar este usuario, escribe "Eliminar" abajo:',
-            ),
+            const Text('Si deseas eliminar este usuario, escribe "Eliminar" abajo:'),
             TextFormField(
               controller: _deleteConfirmController,
-              decoration: const InputDecoration(
-                labelText: 'Confirmar eliminación',
-              ),
+              decoration: const InputDecoration(labelText: 'Confirmar eliminación'),
             ),
           ],
         ),
