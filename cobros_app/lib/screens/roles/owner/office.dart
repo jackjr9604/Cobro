@@ -243,16 +243,13 @@ class _OfficeManagementScreenState extends State<OfficeManagementScreen> {
                 )
                 : ListView(
                   children: [
-                    const Text(
-                      'Crear nueva oficina',
-                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                    ),
+                    Text('Crear nueva oficina', style: Theme.of(context).textTheme.displaySmall),
                     const SizedBox(height: 16),
                     _buildField('Nombre de la oficina', _nameController),
                     _buildField('Dirección principal', _addressController),
                     _buildField('Teléfono celular', _cellphoneController),
                     const SizedBox(height: 16),
-                    const Text('Campos opcionales'),
+                    Text('Campos opcionales', style: Theme.of(context).textTheme.titleLarge),
                     _buildField('Segunda dirección', _address2Controller, optional: true),
                     _buildField('Teléfono alternativo', _cellphone2Controller, optional: true),
                     const SizedBox(height: 20),

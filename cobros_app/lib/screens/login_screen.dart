@@ -187,11 +187,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   const SizedBox(height: 32),
                   Text(
                     'Iniciar Sesión',
-                    style: TextStyle(
-                      color: AppTheme.primaryColor,
-                      fontFamily: AppTheme.primaryFont,
-                      fontSize: 25,
-                    ),
+                    style: Theme.of(context).textTheme.displayLarge,
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 32),
@@ -203,7 +199,6 @@ class _LoginScreenState extends State<LoginScreen> {
                       labelText: 'Correo electrónico',
                       prefixIcon: Icon(Icons.email, color: AppTheme.primaryColor),
                       border: OutlineInputBorder(),
-                      labelStyle: TextStyle(color: AppTheme.textLabel),
                     ),
                     keyboardType: TextInputType.emailAddress,
                     validator: (value) {
@@ -223,7 +218,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     controller: _passwordController,
                     decoration: InputDecoration(
                       labelText: 'Contraseña',
-                      labelStyle: TextStyle(color: AppTheme.textLabel),
+
                       prefixIcon: const Icon(Icons.lock, color: AppTheme.primaryColor),
 
                       suffixIcon: IconButton(
@@ -287,10 +282,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 valueColor: AlwaysStoppedAnimation(Colors.white),
                               ),
                             )
-                            : const Text(
-                              'INICIAR SESIÓN',
-                              style: TextStyle(color: AppTheme.neutroColor),
-                            ),
+                            : const Text('INICIAR SESIÓN'),
                   ),
                   const SizedBox(height: 16),
 

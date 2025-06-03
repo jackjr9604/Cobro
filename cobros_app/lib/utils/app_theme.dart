@@ -9,7 +9,7 @@ class AppTheme {
   static const Color successColor = Color(0xFF34C759); // Verde para éxito
   static const Color textColor = Color(0xFF2E384D); // Color de texto principal
   static const Color lightTextColor = Color(0xFFB0BAC9); // Texto secundario
-  static const Color textLabel = Color.fromARGB(118, 0, 77, 122); // Texto label
+  static const Color textLabel = Color.fromARGB(160, 0, 77, 122); // Texto label
 
   // Nombres de fuentes (deben coincidir con las cargadas en pubspec.yaml)
   static const String primaryFont = 'Roboto';
@@ -72,23 +72,25 @@ class AppTheme {
           fontWeight: FontWeight.bold,
           color: textColor,
         ),
+
         bodyLarge: TextStyle(fontFamily: secondaryFont, fontSize: 16, color: textColor),
         bodyMedium: TextStyle(fontFamily: secondaryFont, fontSize: 14, color: textColor),
         bodySmall: TextStyle(fontFamily: secondaryFont, fontSize: 12, color: lightTextColor),
       ),
-      buttonTheme: ButtonThemeData(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        buttonColor: primaryColor,
-        textTheme: ButtonTextTheme.primary,
-      ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           backgroundColor: primaryColor,
+          foregroundColor: Colors.white, // <-- Color del texto e íconos
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
-          textStyle: const TextStyle(fontFamily: primaryFont, fontWeight: FontWeight.bold),
+          textStyle: const TextStyle(
+            fontFamily: primaryFont,
+            fontWeight: FontWeight.bold,
+            fontSize: 16,
+          ),
         ),
       ),
+
       inputDecorationTheme: InputDecorationTheme(
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
@@ -114,7 +116,7 @@ class AppTheme {
         filled: true,
         fillColor: Colors.white,
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        labelStyle: const TextStyle(color: Color(0xFFB0BAC9), fontSize: 16),
+        labelStyle: const TextStyle(color: textLabel, fontSize: 16),
         hintStyle: const TextStyle(color: Color(0xFFB0BAC9), fontSize: 14),
       ),
     );
