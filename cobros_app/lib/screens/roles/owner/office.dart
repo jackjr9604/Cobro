@@ -25,7 +25,6 @@ class _OfficeManagementScreenState extends State<OfficeManagementScreen> {
 
   bool _isLoading = true;
   bool _hasOffice = false;
-  bool _isEditing = false;
   String? _officeId;
   Timestamp? _createdAt;
   Timestamp? _updatedAt;
@@ -126,42 +125,6 @@ class _OfficeManagementScreenState extends State<OfficeManagementScreen> {
     });
 
     await _loadOffice();
-  }
-
-  Future<void> _updateOffice() async {
-    if (_officeId == null) return;
-
-    await _firestore.collection('offices').doc(_officeId).update({
-      'name': _nameController.text.trim(),
-      'address': _addressController.text.trim(),
-      'cellphone': _cellphoneController.text.trim(),
-      'address2': _address2Controller.text.trim(),
-      'cellphone2': _cellphone2Controller.text.trim(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
-
-    setState(() => _isEditing = false);
-
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Oficina actualizada')));
-
-    await _loadOffice();
-  }
-
-  Widget _buildField(String label, TextEditingController controller, {bool optional = false}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: TextField(
-        controller: controller,
-        readOnly: !_isEditing && _hasOffice,
-        decoration: InputDecoration(
-          labelText: label,
-          border: const OutlineInputBorder(),
-          suffixIcon: optional ? const Icon(Icons.info_outline) : null,
-        ),
-      ),
-    );
   }
 
   Widget _buildFormField(String label, TextEditingController controller, IconData icon) {

@@ -79,13 +79,14 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
     final userDoc = await _firestore.collection('users').doc(currentUser.uid).get();
     final data = userDoc.data();
 
-    if (data != null &&
-        data['role'] == 'owner' &&
-        data['isActive'] == true &&
-        data.containsKey('officeId')) {
+    if (data != null && data['role'] == 'owner' && data.containsKey('officeId')) {
+      // Verificar el estado activo en la nueva estructura
+      final activeStatus = data['activeStatus'] as Map<String, dynamic>?;
+      final isActive = activeStatus?['isActive'] ?? false;
+
       setState(() {
         ownerOfficeId = data['officeId'];
-        isOwnerActive = true;
+        isOwnerActive = isActive; // Usar el valor del mapa activeStatus
       });
       await loadCollectors();
     }
@@ -115,7 +116,6 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
     if (!_formKey.currentState!.validate()) return;
 
     final name = _nameController.text.trim();
-    final base = _baseController.text.trim();
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
 
@@ -133,7 +133,11 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
         'role': 'collector',
         'officeId': ownerOfficeId,
         'createdAt': FieldValue.serverTimestamp(),
-        'isActive': true,
+        'activeStatus': {
+          // Nueva estructura
+          'isActive': true,
+          'lastUpdate': FieldValue.serverTimestamp(),
+        },
         'UID': collectorUID,
       });
 
@@ -196,13 +200,54 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
     await _firestore.collection('users').doc(collector['uid']).update({
       'displayName': newName,
       'base': newBase,
-      'isActive': newStatus,
+      'activeStatus': {
+        // Nueva estructura
+        'isActive': newStatus,
+        'lastUpdate': FieldValue.serverTimestamp(),
+      },
       'updateAt': FieldValue.serverTimestamp(),
     });
     await loadCollectors();
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(const SnackBar(content: Text('Actualizado correctamente.')));
+  }
+
+  Widget _buildEditableField(
+    BuildContext context,
+    String label,
+    TextEditingController controller,
+    IconData icon, {
+    bool isNumber = false,
+  }) {
+    return TextFormField(
+      controller: controller,
+      keyboardType: isNumber ? TextInputType.number : TextInputType.text,
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon, color: Theme.of(context).primaryColor),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+      inputFormatters: isNumber ? [ThousandsSeparatorInputFormatter()] : null,
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.people_alt_outlined, size: 64, color: Colors.grey[400]),
+          const SizedBox(height: 16),
+          Text(
+            'No hay cobradores registrados',
+            style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+          ),
+          const SizedBox(height: 8),
+          Text('Presiona el botón + para agregar uno', style: TextStyle(color: Colors.grey[500])),
+        ],
+      ),
+    );
   }
 
   @override
@@ -215,11 +260,19 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Cobradores'),
+        title: Text('Gestión de Cobradores', style: Theme.of(context).textTheme.displayLarge),
+        centerTitle: true,
         actions: [
           if (isOwnerActive && ownerOfficeId != null)
             IconButton(
-              icon: const Icon(Icons.add),
+              icon: Container(
+                padding: const EdgeInsets.all(6),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).primaryColor,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.add, color: Colors.white),
+              ),
               onPressed: () => setState(() => showForm = !showForm),
             ),
         ],
@@ -227,51 +280,73 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
       body: Column(
         children: [
           if (showForm)
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  children: [
-                    TextFormField(
-                      controller: _nameController,
-                      decoration: const InputDecoration(
-                        labelText: 'Nombre completo',
-                        labelStyle: TextStyle(color: AppTheme.textColor),
+            Card(
+              margin: const EdgeInsets.all(16),
+              elevation: 4,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    children: [
+                      Text(
+                        'Registrar Nuevo Cobrador',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: Theme.of(context).primaryColor,
+                        ),
                       ),
-                      validator:
-                          (value) => value == null || value.isEmpty ? 'Ingrese un nombre' : null,
-                    ),
-                    TextFormField(
-                      controller: _emailController,
-                      decoration: const InputDecoration(
-                        labelText: 'Correo electrónico',
-                        labelStyle: TextStyle(color: AppTheme.textColor),
+                      const SizedBox(height: 20),
+                      TextFormField(
+                        controller: _nameController,
+                        decoration: InputDecoration(
+                          labelText: 'Nombre completo',
+                          prefixIcon: Icon(Icons.person, color: Theme.of(context).primaryColor),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        validator:
+                            (value) => value == null || value.isEmpty ? 'Ingrese un nombre' : null,
                       ),
-                      validator:
-                          (value) =>
-                              value == null || value.isEmpty ? 'Ingrese un correo válido' : null,
-                    ),
-                    TextFormField(
-                      controller: _passwordController,
-                      obscureText: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Contraseña',
-                        labelStyle: TextStyle(color: AppTheme.textColor),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _emailController,
+                        decoration: InputDecoration(
+                          labelText: 'Correo electrónico',
+                          prefixIcon: Icon(Icons.email, color: Theme.of(context).primaryColor),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        validator:
+                            (value) =>
+                                value == null || value.isEmpty ? 'Ingrese un correo válido' : null,
                       ),
-                      validator:
-                          (value) =>
-                              value == null || value.length < 6 ? 'Mínimo 6 caracteres' : null,
-                    ),
-                    const SizedBox(height: 10),
-                    ElevatedButton(
-                      onPressed: registerCollector,
-                      child: const Text(
-                        'Registrar Collector',
-                        style: TextStyle(color: AppTheme.neutroColor),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: _passwordController,
+                        obscureText: true,
+                        decoration: InputDecoration(
+                          labelText: 'Contraseña',
+                          prefixIcon: Icon(Icons.lock, color: Theme.of(context).primaryColor),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        validator:
+                            (value) =>
+                                value == null || value.length < 6 ? 'Mínimo 6 caracteres' : null,
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          onPressed: registerCollector,
+                          child: const Text('Registrar Cobrador', style: TextStyle(fontSize: 16)),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -296,83 +371,165 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
                         );
 
                         return Card(
-                          child: Column(
-                            children: [
-                              ListTile(
-                                title: Text(collector['displayName'] ?? 'Sin nombre'),
-                                subtitle: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(collector['email'] ?? ''),
-                                    Text(
-                                      'Creado: ${collector['createdAt']?.toDate().toString().substring(0, 19) ?? 'N/D'}',
-                                    ),
-                                    if (collector['updateAt'] != null)
-                                      Text(
-                                        'Actualizado: ${collector['updateAt']?.toDate().toString().substring(0, 19)}',
-                                      ),
-                                  ],
-                                ),
-                                trailing: Icon(
-                                  collector['isActive'] == true ? Icons.check_circle : Icons.cancel,
-                                  color: collector['isActive'] == true ? Colors.green : Colors.red,
-                                ),
-                                onTap:
-                                    () => setState(() {
-                                      expandedCards[uid] = !expanded;
-                                    }),
-                              ),
-                              if (expanded)
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                                  child: Column(
+                          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          elevation: 2,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(12),
+                            onTap:
+                                () => setState(() {
+                                  expandedCards[uid] = !expanded;
+                                }),
+                            child: Padding(
+                              padding: const EdgeInsets.all(16),
+                              child: Column(
+                                children: [
+                                  Row(
                                     children: [
-                                      TextFormField(
-                                        controller: nameController,
-                                        decoration: const InputDecoration(
-                                          labelText: 'Editar nombre',
-                                          labelStyle: TextStyle(color: AppTheme.textColor),
+                                      CircleAvatar(
+                                        backgroundColor: Theme.of(
+                                          context,
+                                        ).primaryColor.withOpacity(0.2),
+                                        child: Icon(
+                                          Icons.person,
+                                          color: Theme.of(context).primaryColor,
                                         ),
                                       ),
-                                      TextFormField(
-                                        controller: baseController,
-                                        keyboardType: TextInputType.number,
-                                        decoration: InputDecoration(
-                                          labelText: 'Base',
-                                          labelStyle: TextStyle(color: AppTheme.textColor),
-                                          prefixText: '\$',
-                                          prefixStyle: TextStyle(color: AppTheme.primaryColor),
+                                      const SizedBox(width: 16),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              collector['displayName'] ?? 'Sin nombre',
+                                              style: const TextStyle(
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              collector['email'] ?? '',
+                                              style: TextStyle(
+                                                fontSize: 14,
+                                                color: Colors.grey[600],
+                                              ),
+                                            ),
+                                          ],
                                         ),
-                                        inputFormatters: [ThousandsSeparatorInputFormatter()],
                                       ),
-                                      SwitchListTile(
-                                        title: const Text('Activo'),
-                                        value: collector['isActive'] ?? true,
-                                        onChanged: (value) {
-                                          setState(() {
-                                            collector['isActive'] = value;
-                                          });
-                                        },
-                                      ),
-                                      ElevatedButton(
-                                        onPressed: () async {
-                                          await _updateCollector(
-                                            collector,
-                                            nameController.text.trim(),
-                                            parseFormattedNumber(baseController.text.trim()),
-
-                                            collector['isActive'] ?? true,
-                                          );
-                                        },
-                                        child: const Text(
-                                          'Guardar',
-                                          style: TextStyle(color: AppTheme.neutroColor),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 12,
+                                          vertical: 6,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color:
+                                              (collector['activeStatus']?['isActive'] ?? false)
+                                                  ? Colors.green.withOpacity(0.1)
+                                                  : Colors.red.withOpacity(0.1),
+                                          borderRadius: BorderRadius.circular(20),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(
+                                              (collector['activeStatus']?['isActive'] ?? false)
+                                                  ? Icons.check_circle
+                                                  : Icons.cancel,
+                                              size: 16,
+                                              color:
+                                                  (collector['activeStatus']?['isActive'] ?? false)
+                                                      ? Colors.green
+                                                      : Colors.red,
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              (collector['activeStatus']?['isActive'] ?? false)
+                                                  ? 'Activo'
+                                                  : 'Inactivo',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color:
+                                                    (collector['activeStatus']?['isActive'] ??
+                                                            false)
+                                                        ? Colors.green
+                                                        : Colors.red,
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                       ),
                                     ],
                                   ),
-                                ),
-                            ],
+                                  if (expanded) ...[
+                                    const SizedBox(height: 16),
+                                    const Divider(),
+                                    const SizedBox(height: 16),
+                                    _buildEditableField(
+                                      context,
+                                      'Nombre',
+                                      nameController,
+                                      Icons.person_outline,
+                                    ),
+                                    const SizedBox(height: 16),
+                                    _buildEditableField(
+                                      context,
+                                      'Base',
+                                      baseController,
+                                      Icons.attach_money,
+                                      isNumber: true,
+                                    ),
+                                    const SizedBox(height: 16),
+                                    SwitchListTile(
+                                      title: const Text('Estado del cobrador'),
+                                      secondary: Icon(
+                                        Icons.toggle_on,
+                                        color:
+                                            (collector['activeStatus']?['isActive'] ?? false)
+                                                ? Theme.of(context).primaryColor
+                                                : Colors.grey,
+                                      ),
+                                      value: collector['activeStatus']?['isActive'] ?? false,
+                                      onChanged: (value) {
+                                        setState(() {
+                                          collector['activeStatus'] = {
+                                            'isActive': value,
+                                            'lastUpdate': FieldValue.serverTimestamp(),
+                                          };
+                                        });
+                                      },
+                                    ),
+                                    const SizedBox(height: 16),
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: OutlinedButton(
+                                            onPressed:
+                                                () => setState(() => expandedCards[uid] = false),
+                                            child: const Text('Cancelar'),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 16),
+                                        Expanded(
+                                          child: ElevatedButton(
+                                            onPressed: () async {
+                                              await _updateCollector(
+                                                collector,
+                                                nameController.text.trim(),
+                                                parseFormattedNumber(baseController.text.trim()),
+                                                collector['activeStatus']?['isActive'] ?? true,
+                                              );
+                                            },
+                                            child: const Text('Guardar'),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ),
                           ),
                         );
                       },
