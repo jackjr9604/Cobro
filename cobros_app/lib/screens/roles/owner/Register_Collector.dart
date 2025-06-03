@@ -255,23 +255,44 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
     if (isLoading) return const Center(child: CircularProgressIndicator());
 
     if (!isOwnerActive || ownerOfficeId == null) {
-      return const Center(child: Text('No tienes permisos para ver esta información.'));
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(20.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.error_outline, size: 64, color: Colors.orange),
+              const SizedBox(height: 20),
+              Text(
+                'Cuenta no activa',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey[800],
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Tu cuenta de propietario no está activa actualmente. Por favor, contacta al administrador para más información.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+              ),
+            ],
+          ),
+        ),
+      );
     }
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Gestión de Cobradores', style: Theme.of(context).textTheme.displayLarge),
-        centerTitle: true,
+        title: Text('Gestión de Cobradores'),
         actions: [
           if (isOwnerActive && ownerOfficeId != null)
             IconButton(
               icon: Container(
                 padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).primaryColor,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.add, color: Colors.white),
+                decoration: BoxDecoration(color: AppTheme.neutroColor, shape: BoxShape.circle),
+                child: const Icon(Icons.add, color: AppTheme.primaryColor),
               ),
               onPressed: () => setState(() => showForm = !showForm),
             ),

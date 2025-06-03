@@ -27,12 +27,13 @@ class AppTheme {
       scaffoldBackgroundColor: Colors.white,
       appBarTheme: const AppBarTheme(
         centerTitle: true,
-        elevation: 2,
+        elevation: 4,
+        backgroundColor: primaryColor,
         titleTextStyle: TextStyle(
           fontFamily: primaryFont,
-          fontSize: 20,
+          fontSize: 28,
           fontWeight: FontWeight.bold,
-          color: Colors.white,
+          color: neutroColor,
         ),
       ),
       textTheme: const TextTheme(
@@ -46,7 +47,7 @@ class AppTheme {
           fontFamily: primaryFont,
           fontSize: 28,
           fontWeight: FontWeight.bold,
-          color: textColor,
+          color: neutroColor,
         ),
         displaySmall: TextStyle(
           fontFamily: primaryFont,
