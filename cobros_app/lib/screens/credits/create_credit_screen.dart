@@ -115,177 +115,325 @@ class _CreateCreditScreenState extends State<CreateCreditScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     if (_method == 'Semanal' && (_selectedDay == null || _selectedDay!.isEmpty)) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Por favor, selecciona un día de la semana')));
-      return;
-    }
-
-    // Obtener el UID del cobrador desde el cliente
-    final clientDoc =
-        await FirebaseFirestore.instance.collection('clients').doc(widget.clientId).get();
-
-    final clientData = clientDoc.data();
-    if (clientData == null || !clientData.containsKey('createdBy')) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Error: el cliente no tiene un creador asignado')),
+        SnackBar(
+          content: const Text('Por favor, selecciona un día de la semana'),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
       );
       return;
     }
 
-    final clientCreatorUid = clientData['createdBy'];
-    final docId = '${widget.clientId}_${const Uuid().v4().substring(0, 10)}';
-    final now = DateTime.now();
+    try {
+      // Mostrar diálogo de carga
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(child: CircularProgressIndicator()),
+      );
 
-    // Calcular fechas de pago
-    final paymentDates = _calculatePaymentDates(now, _method, _selectedDay);
-    final paymentSchedule = paymentDates.map((date) => date.toIso8601String()).toList();
+      // Obtener el UID del cobrador desde el cliente
+      final clientDoc =
+          await FirebaseFirestore.instance.collection('clients').doc(widget.clientId).get();
 
-    Map<String, dynamic> dataToSave = {
-      'clientId': widget.clientId,
-      'officeId': widget.officeId,
-      'createdBy': clientCreatorUid,
-      'createdAt': Timestamp.now(),
-      'credit': _credit,
-      'interest': _interestPercent,
-      'method': _method,
-      'cuot': _cuot,
-      'isActive': true,
-      'paymentSchedule': paymentSchedule,
-      'nextPaymentIndex': 0, // Índice del próximo pago
-      'lastPaymentDate': null, // Se actualizará cuando se hagan pagos
-      'daysOverdue': 0, // Días en mora
-      'accumulatedInterest': 0.0, // Interés acumulado por mora
-    };
+      final clientData = clientDoc.data();
+      if (clientData == null || !clientData.containsKey('createdBy')) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Error: el cliente no tiene un creador asignado')),
+        );
+        return;
+      }
 
-    if (_method == 'Semanal') {
-      dataToSave['day'] = _selectedDay;
+      final clientCreatorUid = clientData['createdBy'];
+      final docId = '${widget.clientId}_${const Uuid().v4().substring(0, 10)}';
+      final now = DateTime.now();
+
+      // Calcular fechas de pago
+      final paymentDates = _calculatePaymentDates(now, _method, _selectedDay);
+      final paymentSchedule = paymentDates.map((date) => date.toIso8601String()).toList();
+
+      Map<String, dynamic> dataToSave = {
+        'clientId': widget.clientId,
+        'officeId': widget.officeId,
+        'createdBy': clientCreatorUid,
+        'createdAt': Timestamp.now(),
+        'credit': _credit,
+        'interest': _interestPercent,
+        'method': _method,
+        'cuot': _cuot,
+        'isActive': true,
+        'paymentSchedule': paymentSchedule,
+        'nextPaymentIndex': 0, // Índice del próximo pago
+        'lastPaymentDate': null, // Se actualizará cuando se hagan pagos
+        'daysOverdue': 0, // Días en mora
+        'accumulatedInterest': 0.0, // Interés acumulado por mora
+      };
+
+      if (_method == 'Semanal') {
+        dataToSave['day'] = _selectedDay;
+      }
+
+      // Guardar el crédito
+      await FirebaseFirestore.instance.collection('credits').doc(docId).set(dataToSave);
+
+      // Obtener todos los créditos actuales del cliente
+      final clientCreditsSnapshot =
+          await FirebaseFirestore.instance
+              .collection('credits')
+              .where('clientId', isEqualTo: widget.clientId)
+              .get();
+
+      // El número consecutivo será la cantidad de créditos + 1 (porque este aún no cuenta si se consulta antes)
+      final creditNumber = clientCreditsSnapshot.docs.length;
+
+      // Crear el Map a agregar al documento del cliente
+      final creditMap = {
+        'credit#': creditNumber,
+        'credit': _credit,
+        'interest': _interestPercent,
+        'method': _method,
+        'createdAt': Timestamp.now(),
+        'creditId': docId,
+      };
+
+      // Actualizar el documento del cliente con un nuevo campo con ID del crédito
+      await FirebaseFirestore.instance.collection('clients').doc(widget.clientId).update({
+        docId: creditMap,
+      });
+
+      // Cerrar diálogo de carga
+      if (mounted) Navigator.pop(context);
+
+      // Mostrar mensaje de éxito
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Crédito creado exitosamente'),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      // Cerrar diálogo de carga si hay error
+      if (mounted) Navigator.pop(context);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error al guardar: ${e.toString()}'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
     }
+  }
 
-    // Guardar el crédito
-    await FirebaseFirestore.instance.collection('credits').doc(docId).set(dataToSave);
+  Widget _buildFormField(
+    BuildContext context,
+    String label,
+    TextEditingController controller,
+    IconData icon,
+    TextInputType keyboardType,
+    String? Function(String?)? validator,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: TextFormField(
+        controller: controller,
+        keyboardType: keyboardType,
+        decoration: InputDecoration(
+          labelText: label,
+          prefixIcon: Icon(icon, color: Theme.of(context).primaryColor),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+          filled: true,
+          fillColor: Colors.grey[50],
+        ),
+        validator: validator,
+        onChanged: (_) => setState(() {}),
+      ),
+    );
+  }
 
-    // Obtener todos los créditos actuales del cliente
-    final clientCreditsSnapshot =
-        await FirebaseFirestore.instance
-            .collection('credits')
-            .where('clientId', isEqualTo: widget.clientId)
-            .get();
+  Widget _buildDropdownField(
+    String label,
+    String? value,
+    List<String> items,
+    ValueChanged<String?> onChanged,
+    IconData icon, {
+    String? Function(String?)? validator,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: DropdownButtonFormField<String>(
+        value: value,
+        decoration: InputDecoration(
+          labelText: label,
+          prefixIcon: Icon(icon, color: Theme.of(context).primaryColor),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+          filled: true,
+          fillColor: Colors.grey[50],
+        ),
+        items:
+            items.map((item) {
+              return DropdownMenuItem(value: item, child: Text(item));
+            }).toList(),
+        onChanged: onChanged,
+        validator: validator,
+      ),
+    );
+  }
 
-    // El número consecutivo será la cantidad de créditos + 1 (porque este aún no cuenta si se consulta antes)
-    final creditNumber = clientCreditsSnapshot.docs.length;
-
-    // Crear el Map a agregar al documento del cliente
-    final creditMap = {
-      'credit#': creditNumber,
-      'credit': _credit,
-      'interest': _interestPercent,
-      'method': _method,
-      'createdAt': Timestamp.now(),
-      'creditId': docId,
-    };
-
-    // Actualizar el documento del cliente con un nuevo campo con ID del crédito
-    await FirebaseFirestore.instance.collection('clients').doc(widget.clientId).update({
-      docId: creditMap,
-    });
-
-    if (mounted) Navigator.pop(context);
+  Widget _buildSummaryRow(String label, double value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
+          Text(
+            '\$${NumberFormat('#,##0', 'es_CO').format(value)}',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Theme.of(context).primaryColor,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Nuevo crédito')),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
+      appBar: AppBar(
+        title: const Text('Nuevo crédito'),
+        iconTheme: IconThemeData(color: Colors.white),
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
         child: Form(
           key: _formKey,
-          child: ListView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              TextFormField(
-                controller: _creditController,
-                decoration: const InputDecoration(labelText: 'Valor del crédito'),
-                keyboardType: TextInputType.number,
-                validator: (value) => value!.isEmpty ? 'Campo requerido' : null,
-                onChanged: (_) => setState(() {}),
-              ),
-              TextFormField(
-                controller: _interestController,
-                decoration: const InputDecoration(labelText: 'Interés %'),
-                keyboardType: TextInputType.number,
-                validator: (value) => value!.isEmpty ? 'Campo requerido' : null,
-                onChanged: (_) => setState(() {}),
-              ),
-              DropdownButtonFormField<String>(
-                value: _method,
-                items: const [
-                  DropdownMenuItem(value: 'Diario', child: Text('Diario')),
-                  DropdownMenuItem(value: 'Semanal', child: Text('Semanal')),
-                  DropdownMenuItem(value: 'Quincenal', child: Text('Quincenal')),
-                  DropdownMenuItem(value: 'Mensual', child: Text('Mensual')),
-                ],
-                onChanged:
-                    (value) => setState(() {
-                      _method = value!;
-                      if (_method != 'Semanal') _selectedDay = null;
-                    }),
-                decoration: const InputDecoration(labelText: 'Forma de pago'),
-              ),
-              TextFormField(
-                controller: _cuotController,
-                decoration: const InputDecoration(labelText: 'Número de cuotas'),
-                keyboardType: TextInputType.number,
-                validator: (value) {
-                  if (value == null || value.isEmpty) return 'Campo requerido';
-                  if (int.tryParse(value) == null || int.parse(value) <= 0) {
-                    return 'Ingrese un número válido mayor a 0';
-                  }
-                  return null;
-                },
-                onChanged: (_) => setState(() {}),
-              ),
-
-              if (_method == 'Semanal') ...[
-                const SizedBox(height: 16),
-                DropdownButtonFormField<String>(
-                  value: _selectedDay,
-                  decoration: const InputDecoration(labelText: 'Día de la semana'),
-                  items:
-                      _daysOfWeek
-                          .map((day) => DropdownMenuItem(value: day, child: Text(day)))
-                          .toList(),
-                  onChanged: (value) => setState(() => _selectedDay = value),
-                  validator: (value) {
-                    if (_method == 'Semanal' && (value == null || value.isEmpty)) {
-                      return 'Por favor, selecciona un día de la semana';
-                    }
-                    return null;
-                  },
+              Card(
+                elevation: 2,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      const Text(
+                        'Información del Crédito',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blue,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      _buildFormField(
+                        context,
+                        'Valor del crédito',
+                        _creditController,
+                        Icons.attach_money,
+                        TextInputType.number,
+                        (value) => value!.isEmpty ? 'Campo requerido' : null,
+                      ),
+                      _buildFormField(
+                        context,
+                        'Interés %',
+                        _interestController,
+                        Icons.percent,
+                        TextInputType.number,
+                        (value) => value!.isEmpty ? 'Campo requerido' : null,
+                      ),
+                      _buildDropdownField(
+                        'Forma de pago',
+                        _method,
+                        ['Diario', 'Semanal', 'Quincenal', 'Mensual'],
+                        (value) => setState(() {
+                          _method = value!;
+                          if (_method != 'Semanal') _selectedDay = null;
+                        }),
+                        Icons.payment,
+                      ),
+                      _buildFormField(
+                        context,
+                        'Número de cuotas',
+                        _cuotController,
+                        Icons.format_list_numbered,
+                        TextInputType.number,
+                        (value) {
+                          if (value == null || value.isEmpty) return 'Campo requerido';
+                          if (int.tryParse(value) == null || int.parse(value) <= 0) {
+                            return 'Ingrese un número válido mayor a 0';
+                          }
+                          return null;
+                        },
+                      ),
+                      if (_method == 'Semanal') ...[
+                        const SizedBox(height: 8),
+                        _buildDropdownField(
+                          'Día de la semana',
+                          _selectedDay,
+                          _daysOfWeek,
+                          (value) => setState(() => _selectedDay = value),
+                          Icons.calendar_today,
+                          validator: (value) {
+                            if (_method == 'Semanal' && (value == null || value.isEmpty)) {
+                              return 'Selecciona un día';
+                            }
+                            return null;
+                          },
+                        ),
+                      ],
+                    ],
+                  ),
                 ),
-              ],
-
-              const SizedBox(height: 20),
-
-              const Divider(),
-              ListTile(
-                title: const Text('Interés'),
-                trailing: Text('\$${NumberFormat('#,##0', 'es_CO').format(_interest)}'),
-                dense: true,
-              ),
-              ListTile(
-                title: const Text('Saldo total'),
-                trailing: Text('\$${NumberFormat('#,##0', 'es_CO').format(_total)}'),
-                dense: true,
-              ),
-              ListTile(
-                title: const Text('Valor de la cuota'),
-                trailing: Text('\$${NumberFormat('#,##0', 'es_CO').format(_installment)}'),
-                dense: true,
               ),
 
-              const SizedBox(height: 20),
-              ElevatedButton(onPressed: _saveCredit, child: const Text('Guardar crédito')),
+              // Resumen del cálculo
+              Card(
+                elevation: 2,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      const Text(
+                        'Resumen del Crédito',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blue,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      _buildSummaryRow('Interés:', _interest),
+                      _buildSummaryRow('Saldo total:', _total),
+                      _buildSummaryRow('Valor de la cuota:', _installment),
+                    ],
+                  ),
+                ),
+              ),
+
+              // Botón de guardar
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: _saveCredit,
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                child: const Text(
+                  'GUARDAR CRÉDITO',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ),
             ],
           ),
         ),

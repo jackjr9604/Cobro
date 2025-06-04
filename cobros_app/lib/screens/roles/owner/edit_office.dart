@@ -45,25 +45,61 @@ class _EditOfficeScreenState extends State<EditOfficeScreen> {
       'updatedAt': FieldValue.serverTimestamp(),
     });
 
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Oficina actualizada')));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Oficina actualizada correctamente',
+          style: TextStyle(fontSize: Responsive.isMobile(context) ? 14 : 16),
+        ),
+        backgroundColor: Colors.green,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        duration: const Duration(seconds: 2),
+      ),
+    );
 
     Navigator.pop(context);
   }
 
-  Widget _buildField(String label, TextEditingController controller, {bool optional = false}) {
+  Widget _buildField(
+    String label,
+    TextEditingController controller, {
+    bool optional = false,
+    IconData? icon,
+    TextInputType keyboardType = TextInputType.text,
+  }) {
     final fontSize = Responsive.isMobile(context) ? 14.0 : 16.0;
     return Padding(
       padding: EdgeInsets.symmetric(vertical: Responsive.isMobile(context) ? 8.0 : 12.0),
       child: TextField(
         controller: controller,
         style: TextStyle(fontSize: fontSize),
+        keyboardType: keyboardType,
         decoration: InputDecoration(
           labelText: label,
-          labelStyle: TextStyle(fontSize: fontSize),
-          border: const OutlineInputBorder(),
-          suffixIcon: optional ? const Icon(Icons.info_outline) : null,
+          labelStyle: TextStyle(fontSize: fontSize, color: Colors.grey[600]),
+          prefixIcon: icon != null ? Icon(icon, color: Theme.of(context).primaryColor) : null,
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: BorderSide(color: Colors.grey[400]!),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: BorderSide(color: Colors.grey[400]!),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: BorderSide(color: Theme.of(context).primaryColor, width: 2),
+          ),
+          suffixIcon:
+              optional
+                  ? Tooltip(
+                    message: 'Campo opcional',
+                    child: Icon(Icons.info_outline, color: Colors.grey[500]),
+                  )
+                  : null,
+          filled: true,
+          fillColor: Colors.grey[50],
         ),
       ),
     );
@@ -77,10 +113,30 @@ class _EditOfficeScreenState extends State<EditOfficeScreen> {
     final titleFontSize = Responsive.isMobile(context) ? 20.0 : 26.0;
 
     return Scaffold(
-      appBar: AppBar(title: Text('Editar Oficina', style: TextStyle(fontSize: titleFontSize))),
+      appBar: AppBar(
+        title: Text('Editar Oficina', style: TextStyle(fontSize: titleFontSize)),
+
+        iconTheme: IconThemeData(color: Colors.white),
+      ),
+
       body:
           _isSaving
-              ? const Center(child: CircularProgressIndicator())
+              ? Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const CircularProgressIndicator(),
+                    const SizedBox(height: 20),
+                    Text(
+                      'Guardando cambios...',
+                      style: TextStyle(
+                        fontSize: Responsive.isMobile(context) ? 16 : 18,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                  ],
+                ),
+              )
               : Center(
                 child: SingleChildScrollView(
                   padding: EdgeInsets.all(padding),
@@ -98,29 +154,76 @@ class _EditOfficeScreenState extends State<EditOfficeScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        _buildField('Nombre de la oficina', _nameController),
-                        _buildField('Dirección principal', _addressController),
-                        _buildField('Teléfono celular', _cellphoneController),
-                        const SizedBox(height: 16),
-                        const Text('Campos opcionales'),
-                        _buildField('Segunda dirección', _address2Controller, optional: true),
-                        _buildField('Teléfono alternativo', _cellphone2Controller, optional: true),
+                        Text(
+                          'Información de la Oficina',
+                          style: TextStyle(
+                            fontSize: titleFontSize * 0.8,
+                            fontWeight: FontWeight.bold,
+                            color: Theme.of(context).primaryColor,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 20),
+                        _buildField('Nombre de la oficina', _nameController, icon: Icons.business),
+                        _buildField(
+                          'Dirección principal',
+                          _addressController,
+                          icon: Icons.location_on,
+                        ),
+                        _buildField(
+                          'Teléfono celular',
+                          _cellphoneController,
+                          icon: Icons.phone,
+                          keyboardType: TextInputType.phone,
+                        ),
                         const SizedBox(height: 24),
-                        ElevatedButton.icon(
-                          onPressed: _saveChanges,
-                          icon: const Icon(Icons.save),
-                          label: const Text(
-                            'Guardar cambios',
+                        Container(
+                          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                          decoration: BoxDecoration(
+                            color: Colors.grey[100],
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            'Información Adicional (Opcional)',
                             style: TextStyle(
-                              fontFamily: AppTheme.primaryFont,
-                              color: AppTheme.neutroColor,
+                              fontSize: Responsive.isMobile(context) ? 14 : 16,
+                              color: Colors.grey[600],
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        _buildField(
+                          'Segunda dirección',
+                          _address2Controller,
+                          icon: Icons.location_city,
+                          optional: true,
+                        ),
+                        _buildField(
+                          'Teléfono alternativo',
+                          _cellphone2Controller,
+                          icon: Icons.phone_android,
+                          optional: true,
+                          keyboardType: TextInputType.phone,
+                        ),
+                        const SizedBox(height: 32),
+                        ElevatedButton.icon(
+                          onPressed: _isSaving ? null : _saveChanges,
+                          icon: Icon(Icons.save, size: Responsive.isMobile(context) ? 20 : 24),
+                          label: Text(
+                            'GUARDAR CAMBIOS',
+                            style: TextStyle(
+                              fontSize: Responsive.isMobile(context) ? 16 : 18,
+                              fontWeight: FontWeight.bold,
                             ),
                           ),
                           style: ElevatedButton.styleFrom(
                             padding: EdgeInsets.symmetric(
-                              vertical: Responsive.isMobile(context) ? 14 : 18,
+                              vertical: Responsive.isMobile(context) ? 16 : 20,
                             ),
-                            textStyle: TextStyle(fontSize: Responsive.isMobile(context) ? 16 : 18),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            backgroundColor: Theme.of(context).primaryColor,
+                            foregroundColor: Colors.white,
                           ),
                         ),
                       ],

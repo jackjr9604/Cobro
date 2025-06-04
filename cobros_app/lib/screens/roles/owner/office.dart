@@ -187,12 +187,12 @@ class _OfficeManagementScreenState extends State<OfficeManagementScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Gestión de Oficina', style: Theme.of(context).textTheme.displayLarge),
+        title: Text('Gestión de Oficina'),
         actions:
             _hasOffice
                 ? [
                   IconButton(
-                    icon: const Icon(Icons.edit),
+                    icon: const Icon(Icons.edit, color: Colors.white),
                     onPressed: () {
                       Navigator.push(
                         context,

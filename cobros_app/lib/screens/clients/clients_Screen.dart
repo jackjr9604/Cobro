@@ -52,15 +52,19 @@ class ClientsScreen extends StatelessWidget {
       builder: (BuildContext context) {
         return AlertDialog(
           title: const Text('Confirmar eliminación'),
-          content: const Text('¿Estás seguro de que deseas eliminar este cliente?'),
+          content: const Text(
+            '¿Estás seguro de que deseas eliminar este crédito? Esta acción no se puede deshacer.',
+          ),
           actions: <Widget>[
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
               child: const Text('Cancelar'),
+              style: TextButton.styleFrom(foregroundColor: Colors.grey),
             ),
             TextButton(
               onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Eliminar'),
+              child: const Text('Eliminar', style: TextStyle(color: Colors.red)),
+              style: TextButton.styleFrom(backgroundColor: Colors.red[50]),
             ),
           ],
         );
@@ -218,6 +222,9 @@ class ClientsScreen extends StatelessWidget {
                 );
               }
               return ListView.builder(
+                padding: EdgeInsets.only(bottom: 80),
+                physics: const AlwaysScrollableScrollPhysics(),
+                shrinkWrap: true,
                 itemCount: clients.length,
                 itemBuilder: (context, index) {
                   final client = clients[index];

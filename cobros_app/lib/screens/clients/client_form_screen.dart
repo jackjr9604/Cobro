@@ -71,24 +71,62 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
   Future<void> _saveClient() async {
     if (_formKey.currentState?.validate() ?? false) {
       _formKey.currentState?.save();
-      final clientId = widget.clientId ?? _generateClientId(_officeId);
 
-      await FirebaseFirestore.instance.collection('clients').doc(clientId).set({
-        'clientName': _clientName,
-        'cc': _cc,
-        'cellphone': _cellphone,
-        'address': _address,
-        'ref/Alias': _refAlias,
-        'phone': _phone,
-        'address2': _address2,
-        'city': _city,
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-        'officeId': _officeId, // Ahora se guarda correctamente el officeId
-        'createdBy': _createdBy,
-      });
+      try {
+        // Mostrar diálogo de carga
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => Center(child: CircularProgressIndicator()),
+        );
 
-      Navigator.pop(context);
+        final clientId = widget.clientId ?? _generateClientId(_officeId);
+        final now = FieldValue.serverTimestamp();
+
+        await FirebaseFirestore.instance.collection('clients').doc(clientId).set({
+          'clientName': _clientName,
+          'cc': _cc,
+          'cellphone': _cellphone,
+          'address': _address,
+          'ref/Alias': _refAlias,
+          'phone': _phone,
+          'address2': _address2,
+          'city': _city,
+          'createdAt':
+              isEditing
+                  ? (widget.initialData != null ? widget.initialData!['createdAt'] : now)
+                  : now,
+          'updatedAt': now,
+          'officeId': _officeId,
+          'createdBy': _createdBy,
+        }, SetOptions(merge: isEditing));
+
+        // Cerrar diálogo de carga
+        if (mounted) Navigator.pop(context);
+
+        // Mostrar mensaje de éxito
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(isEditing ? 'Cliente actualizado' : 'Cliente creado'),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          ),
+        );
+
+        if (mounted) Navigator.pop(context);
+      } catch (e) {
+        // Cerrar diálogo de carga si hay error
+        if (mounted) Navigator.pop(context);
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     }
   }
 
@@ -98,76 +136,224 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
     final isCollector = widget.initialData != null && user.uid != widget.initialData!['createdBy'];
 
     return Scaffold(
-      appBar: AppBar(title: Text(isEditing ? 'Editar Cliente' : 'Crear Cliente')),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
+      appBar: AppBar(
+        title: Text(isEditing ? 'Editar Cliente' : 'Crear Cliente'),
+        iconTheme: IconThemeData(color: Colors.white),
+        actions: [if (isEditing) IconButton(icon: Icon(Icons.delete), onPressed: _confirmDelete)],
+      ),
+      body: SingleChildScrollView(
+        padding: EdgeInsets.all(16),
         child: Form(
           key: _formKey,
-          child: ListView(
+          child: Column(
             children: [
-              // Nombre completo
-              TextFormField(
-                initialValue: widget.initialData?['clientName'] ?? '',
-                decoration: const InputDecoration(labelText: 'Nombre completo'),
-                onSaved: (value) => _clientName = value!,
-                validator: (value) => value!.isEmpty ? 'El nombre es obligatorio' : null,
-                enabled: !isCollector,
+              Card(
+                elevation: 3,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      Text(
+                        'Información Personal',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Theme.of(context).primaryColor,
+                        ),
+                      ),
+                      SizedBox(height: 16),
+                      _buildFormField(
+                        context,
+                        'Nombre completo',
+                        'clientName',
+                        Icons.person,
+                        !isCollector,
+                        validator: (value) => value!.isEmpty ? 'Campo requerido' : null,
+                      ),
+                      _buildFormField(
+                        context,
+                        'Cédula',
+                        'cc',
+                        Icons.badge,
+                        !isCollector,
+                        validator: (value) => value!.isEmpty ? 'Campo requerido' : null,
+                      ),
+                      _buildFormField(
+                        context,
+                        'Celular',
+                        'cellphone',
+                        Icons.phone_android,
+                        true,
+                        validator: (value) => value!.isEmpty ? 'Campo requerido' : null,
+                        keyboardType: TextInputType.phone,
+                      ),
+                      _buildFormField(
+                        context,
+                        'Teléfono',
+                        'phone',
+                        Icons.phone,
+                        true,
+                        keyboardType: TextInputType.phone,
+                      ),
+                    ],
+                  ),
+                ),
               ),
-              // Cédula
-              TextFormField(
-                initialValue: widget.initialData?['cc'] ?? '',
-                decoration: const InputDecoration(labelText: 'Cédula'),
-                onSaved: (value) => _cc = value!,
-                validator: (value) => value!.isEmpty ? 'La cédula es obligatoria' : null,
-                enabled: !isCollector,
+
+              SizedBox(height: 16),
+
+              Card(
+                elevation: 3,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      Text(
+                        'Información de Dirección',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Theme.of(context).primaryColor,
+                        ),
+                      ),
+                      SizedBox(height: 16),
+                      _buildFormField(
+                        context,
+                        'Dirección principal',
+                        'address',
+                        Icons.location_on,
+                        true,
+                        validator: (value) => value!.isEmpty ? 'Campo requerido' : null,
+                      ),
+                      _buildFormField(
+                        context,
+                        'Dirección secundaria',
+                        'address2',
+                        Icons.location_city,
+                        true,
+                      ),
+                      _buildFormField(context, 'Ciudad', 'city', Icons.map, true),
+                      _buildFormField(
+                        context,
+                        'Referencia/Alias',
+                        'ref/Alias',
+                        Icons.short_text,
+                        true,
+                      ),
+                    ],
+                  ),
+                ),
               ),
-              // Celular
-              TextFormField(
-                initialValue: widget.initialData?['cellphone'] ?? '',
-                decoration: const InputDecoration(labelText: 'Celular'),
-                onSaved: (value) => _cellphone = value!,
-                validator: (value) => value!.isEmpty ? 'El celular es obligatorio' : null,
-              ),
-              // Dirección
-              TextFormField(
-                initialValue: widget.initialData?['address'] ?? '',
-                decoration: const InputDecoration(labelText: 'Dirección'),
-                onSaved: (value) => _address = value!,
-                validator: (value) => value!.isEmpty ? 'La dirección es obligatoria' : null,
-              ),
-              // Referencia / Alias
-              TextFormField(
-                initialValue: widget.initialData?['ref/Alias'] ?? '',
-                decoration: const InputDecoration(labelText: 'Referencia / Alias'),
-                onSaved: (value) => _refAlias = value!,
-              ),
-              // Teléfono
-              TextFormField(
-                initialValue: widget.initialData?['phone'] ?? '',
-                decoration: const InputDecoration(labelText: 'Teléfono'),
-                onSaved: (value) => _phone = value!,
-              ),
-              // Dirección 2
-              TextFormField(
-                initialValue: widget.initialData?['address2'] ?? '',
-                decoration: const InputDecoration(labelText: 'Dirección 2'),
-                onSaved: (value) => _address2 = value!,
-              ),
-              // Ciudad
-              TextFormField(
-                initialValue: widget.initialData?['city'] ?? '',
-                decoration: const InputDecoration(labelText: 'Ciudad'),
-                onSaved: (value) => _city = value!,
-              ),
-              // Botón de guardar
+
+              SizedBox(height: 24),
               Padding(
-                padding: const EdgeInsets.symmetric(vertical: 16.0),
-                child: ElevatedButton(onPressed: _saveClient, child: const Text('Guardar Cliente')),
+                padding: const EdgeInsets.only(top: 20.0),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: _saveClient,
+                    style: ElevatedButton.styleFrom(
+                      padding: EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.save, size: 20),
+                        SizedBox(width: 8),
+                        Text(
+                          isEditing ? 'ACTUALIZAR CLIENTE' : 'CREAR CLIENTE',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
             ],
           ),
         ),
       ),
     );
+  }
+
+  Widget _buildFormField(
+    BuildContext context,
+    String label,
+    String fieldKey,
+    IconData icon,
+    bool enabled, {
+    String? Function(String?)? validator,
+    TextInputType keyboardType = TextInputType.text,
+  }) {
+    return Padding(
+      padding: EdgeInsets.only(bottom: 16),
+      child: TextFormField(
+        initialValue: widget.initialData?[fieldKey] ?? '',
+        enabled: enabled,
+        decoration: InputDecoration(
+          labelText: label,
+          prefixIcon: Icon(icon, color: Theme.of(context).primaryColor),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+          filled: true,
+          fillColor: enabled ? Colors.grey[50] : Colors.grey[200],
+        ),
+        keyboardType: keyboardType,
+        validator: validator,
+        onSaved: (value) {
+          switch (fieldKey) {
+            case 'clientName':
+              _clientName = value!;
+              break;
+            case 'cc':
+              _cc = value!;
+              break;
+            case 'cellphone':
+              _cellphone = value!;
+              break;
+            case 'address':
+              _address = value!;
+              break;
+            case 'ref/Alias':
+              _refAlias = value!;
+              break;
+            case 'phone':
+              _phone = value!;
+              break;
+            case 'address2':
+              _address2 = value!;
+              break;
+            case 'city':
+              _city = value!;
+              break;
+          }
+        },
+      ),
+    );
+  }
+
+  Future<void> _confirmDelete() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: Text('Confirmar eliminación'),
+            content: Text('¿Estás seguro de eliminar este cliente?'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context, false), child: Text('Cancelar')),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: Text('Eliminar', style: TextStyle(color: Colors.red)),
+              ),
+            ],
+          ),
+    );
+
+    if (confirmed == true) {
+      await FirebaseFirestore.instance.collection('clients').doc(widget.clientId).delete();
+      Navigator.pop(context);
+    }
   }
 }

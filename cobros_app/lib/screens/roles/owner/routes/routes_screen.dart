@@ -61,7 +61,7 @@ class _RoutesScreenState extends State<RoutesScreen> {
               .collection('users')
               .where('role', isEqualTo: 'collector')
               .where('officeId', isEqualTo: officeId)
-              .where('isActive', isEqualTo: true);
+              .where('activeStatus.isActive', isEqualTo: true); // Cambio clave aquí
 
           return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: collectorsQuery.snapshots(),

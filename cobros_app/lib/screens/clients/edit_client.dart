@@ -83,32 +83,36 @@ class _EditClientScreenState extends State<EditClientScreen> {
   Future<void> updateClient() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final updateData = {
-      'address': _addressController.text,
-      'cellphone': _cellphoneController.text,
-      'refAlias': _refController.text,
-      'phone': _phoneController.text,
-      'address2': _address2Controller.text,
-      'city': _cityController.text,
-      'updatedAt': Timestamp.now(),
-    };
+    try {
+      // Mostrar diálogo de carga
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(child: CircularProgressIndicator()),
+      );
 
-    final clientRef = FirebaseFirestore.instance.collection('clients').doc(widget.clientId);
+      final updateData = {
+        'address': _addressController.text,
+        'cellphone': _cellphoneController.text,
+        'refAlias': _refController.text,
+        'phone': _phoneController.text,
+        'address2': _address2Controller.text,
+        'city': _cityController.text,
+        'updatedAt': Timestamp.now(),
+      };
 
-    // Solo si es owner puede cambiar el nombre, cc y createdBy
-    if (isOwner) {
-      updateData['clientName'] = _nameController.text;
-      updateData['cc'] = _ccController.text;
+      final clientRef = FirebaseFirestore.instance.collection('clients').doc(widget.clientId);
 
-      final originalCreatedBy = widget.clientData['createdBy'];
-      final newCreatedBy = selectedCollectorUid ?? '';
-
-      updateData['createdBy'] = newCreatedBy;
+      if (isOwner) {
+        updateData['clientName'] = _nameController.text;
+        updateData['cc'] = _ccController.text;
+        updateData['createdBy'] = selectedCollectorUid ?? '';
+      }
 
       await clientRef.update(updateData);
 
-      // Si el createdBy fue cambiado, actualizar los créditos
-      if (originalCreatedBy != newCreatedBy) {
+      // Si es owner y cambió el collector, actualizar créditos
+      if (isOwner && selectedCollectorUid != widget.clientData['createdBy']) {
         final creditsQuery =
             await FirebaseFirestore.instance
                 .collection('credits')
@@ -116,96 +120,252 @@ class _EditClientScreenState extends State<EditClientScreen> {
                 .get();
 
         final batch = FirebaseFirestore.instance.batch();
-
         for (final doc in creditsQuery.docs) {
-          batch.update(doc.reference, {'createdBy': newCreatedBy});
+          batch.update(doc.reference, {'createdBy': selectedCollectorUid});
         }
-
         await batch.commit();
       }
-    } else {
-      // Si no es owner, solo actualiza los campos permitidos
-      await clientRef.update(updateData);
-    }
 
-    Navigator.pop(context);
+      // Cerrar diálogo de carga
+      if (mounted) Navigator.pop(context);
+
+      // Mostrar mensaje de éxito
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Cliente actualizado exitosamente'),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      // Cerrar diálogo de carga si hay error
+      if (mounted) Navigator.pop(context);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error al actualizar: ${e.toString()}'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Editar Cliente')),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
+      appBar: AppBar(
+        title: const Text('Editar Cliente'),
+        iconTheme: IconThemeData(color: Colors.white),
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
         child: Form(
           key: _formKey,
-          child: ListView(
+          child: Column(
             children: [
-              TextFormField(
-                controller: _nameController,
-                enabled: isOwner,
-                decoration: const InputDecoration(labelText: 'Nombre completo'),
-                validator: (value) => value!.isEmpty ? 'Campo requerido' : null,
+              Card(
+                elevation: 3,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      const Text(
+                        'Información Básica',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blue,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      _buildFormField(
+                        context,
+                        'Nombre completo',
+                        _nameController,
+                        Icons.person,
+                        isOwner,
+                        validator: (value) => value!.isEmpty ? 'Campo requerido' : null,
+                      ),
+                      _buildFormField(
+                        context,
+                        'Cédula',
+                        _ccController,
+                        Icons.badge,
+                        isOwner,
+                        validator: (value) => value!.isEmpty ? 'Campo requerido' : null,
+                      ),
+                      _buildFormField(
+                        context,
+                        'Celular',
+                        _cellphoneController,
+                        Icons.phone_android,
+                        true,
+                        validator: (value) => value!.isEmpty ? 'Campo requerido' : null,
+                      ),
+                      _buildFormField(context, 'Teléfono', _phoneController, Icons.phone, true),
+                    ],
+                  ),
+                ),
               ),
-              TextFormField(
-                controller: _ccController,
-                enabled: isOwner,
-                decoration: const InputDecoration(labelText: 'Cédula'),
-                validator: (value) => value!.isEmpty ? 'Campo requerido' : null,
+
+              const SizedBox(height: 16),
+
+              Card(
+                elevation: 3,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      const Text(
+                        'Información de Dirección',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blue,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      _buildFormField(
+                        context,
+                        'Dirección principal',
+                        _addressController,
+                        Icons.location_on,
+                        true,
+                        validator: (value) => value!.isEmpty ? 'Campo requerido' : null,
+                      ),
+                      _buildFormField(
+                        context,
+                        'Dirección secundaria',
+                        _address2Controller,
+                        Icons.location_city,
+                        true,
+                      ),
+                      _buildFormField(context, 'Ciudad', _cityController, Icons.map, true),
+                      _buildFormField(
+                        context,
+                        'Referencia/Alias',
+                        _refController,
+                        Icons.short_text,
+                        true,
+                      ),
+                    ],
+                  ),
+                ),
               ),
-              TextFormField(
-                controller: _addressController,
-                decoration: const InputDecoration(labelText: 'Dirección'),
-                validator: (value) => value!.isEmpty ? 'Campo requerido' : null,
-              ),
-              TextFormField(
-                controller: _cellphoneController,
-                decoration: const InputDecoration(labelText: 'Celular'),
-                validator: (value) => value!.isEmpty ? 'Campo requerido' : null,
-              ),
-              TextFormField(
-                controller: _refController,
-                decoration: const InputDecoration(labelText: 'Referencia/Alias'),
-              ),
-              TextFormField(
-                controller: _phoneController,
-                decoration: const InputDecoration(labelText: 'Teléfono'),
-              ),
-              TextFormField(
-                controller: _address2Controller,
-                decoration: const InputDecoration(labelText: 'Dirección 2'),
-              ),
-              TextFormField(
-                controller: _cityController,
-                decoration: const InputDecoration(labelText: 'Ciudad'),
-              ),
+
               if (isOwner) ...[
                 const SizedBox(height: 16),
-                DropdownButtonFormField<String>(
-                  value: selectedCollectorUid,
-                  onChanged: (value) {
-                    setState(() {
-                      selectedCollectorUid = value;
-                    });
-                  },
-                  items:
-                      collectors.isNotEmpty
-                          ? collectors.map((collector) {
-                            return DropdownMenuItem<String>(
-                              value: collector['uid'],
-                              child: Text(collector['name']!),
-                            );
-                          }).toList()
-                          : [], // Si no hay collectors, el dropdown estará vacío
-                  decoration: const InputDecoration(labelText: 'Asignar a Collector'),
+                Card(
+                  elevation: 3,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      children: [
+                        const Text(
+                          'Asignación',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        _buildCollectorDropdown(),
+                      ],
+                    ),
+                  ),
                 ),
               ],
-              const SizedBox(height: 20),
-              ElevatedButton(onPressed: updateClient, child: const Text('Guardar cambios')),
+
+              const SizedBox(height: 24),
+              Padding(
+                padding: const EdgeInsets.only(top: 24.0),
+                child: SizedBox(
+                  width: double.infinity, // Ocupa todo el ancho disponible
+                  child: ElevatedButton(
+                    onPressed: updateClient,
+                    style: ElevatedButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 16), // Altura del botón
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10), // Bordes redondeados
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: const [
+                        Icon(Icons.save, size: 20),
+                        SizedBox(width: 8),
+                        Text('GUARDAR CAMBIOS'),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildFormField(
+    BuildContext context,
+    String label,
+    TextEditingController controller,
+    IconData icon,
+    bool enabled, {
+    String? Function(String?)? validator,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: TextFormField(
+        controller: controller,
+        enabled: enabled,
+        decoration: InputDecoration(
+          labelText: label,
+          prefixIcon: Icon(icon, color: Theme.of(context).primaryColor),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+          filled: true,
+          fillColor: enabled ? Colors.grey[50] : Colors.grey[200],
+        ),
+        validator: validator,
+      ),
+    );
+  }
+
+  Widget _buildCollectorDropdown() {
+    return DropdownButtonFormField<String>(
+      value: selectedCollectorUid,
+      decoration: InputDecoration(
+        labelText: 'Asignar a Collector',
+        prefixIcon: Icon(Icons.person_search, color: Theme.of(context).primaryColor),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+        filled: true,
+        fillColor: Colors.grey[50],
+      ),
+      onChanged: (value) => setState(() => selectedCollectorUid = value),
+      items:
+          collectors.map((collector) {
+            return DropdownMenuItem<String>(
+              value: collector['uid'],
+              child: Text(
+                collector['name']!,
+                style: TextStyle(
+                  color:
+                      selectedCollectorUid == collector['uid']
+                          ? Theme.of(context).primaryColor
+                          : Colors.black,
+                ),
+              ),
+            );
+          }).toList(),
     );
   }
 }
