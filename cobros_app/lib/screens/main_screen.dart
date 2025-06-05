@@ -359,7 +359,23 @@ class _MainScreenState extends State<MainScreen> {
               ),
             ),
           ),
-          Expanded(child: ListView(children: _getMenuItems(context))),
+
+          Expanded(
+            child: ListView(
+              padding: EdgeInsets.zero,
+              children: [
+                ..._getMenuItems(context).whereType<Widget>().toList(),
+                const Padding(
+                  padding: EdgeInsets.all(16.0),
+                  child: Text(
+                    'Version 1.0.0',
+                    style: TextStyle(color: AppTheme.primaryColor, fontSize: 12),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
