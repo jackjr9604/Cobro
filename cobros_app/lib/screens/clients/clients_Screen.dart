@@ -5,9 +5,38 @@ import 'package:flutter/services.dart';
 import '../clients/client_form_screen.dart';
 import '../clients/edit_client.dart';
 import '../credits/client_credits_screen.dart';
+import '../../utils/office_verification_mixin.dart';
 
-class ClientsScreen extends StatelessWidget {
+class ClientsScreen extends StatefulWidget {
   const ClientsScreen({super.key});
+
+  @override
+  State<ClientsScreen> createState() => _ClientsScreenState();
+}
+
+class _ClientsScreenState extends State<ClientsScreen> with OfficeVerificationMixin {
+  bool isLoading = true;
+  bool hasOffice = false;
+  bool isActive = false;
+  String? officeId;
+  Map<String, dynamic>? userData;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadOfficeData();
+  }
+
+  Future<void> _loadOfficeData() async {
+    final verification = await verifyOfficeAndStatus();
+    setState(() {
+      hasOffice = verification['hasOffice'];
+      isActive = verification['isActive'];
+      officeId = verification['officeId'];
+      userData = verification['userData'];
+      isLoading = false;
+    });
+  }
 
   Future<Query<Map<String, dynamic>>> getClientsQuery(User user) async {
     final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
@@ -148,8 +177,44 @@ class ClientsScreen extends StatelessWidget {
     );
   }
 
+  Widget _buildInactiveAccountScreen() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.error_outline, size: 64, color: Colors.orange),
+            const SizedBox(height: 20),
+            Text(
+              'Cuenta no activa',
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.grey[800]),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Tu cuenta de propietario no está activa actualmente. Por favor, contacta al administrador para más información.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (!hasOffice || !isActive) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Gestión de Clientes')),
+        body: _buildInactiveAccountScreen(),
+      );
+    }
+
     final user = FirebaseAuth.instance.currentUser;
 
     if (user == null) return const Center(child: Text('Usuario no autenticado'));

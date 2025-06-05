@@ -92,22 +92,6 @@ class ClientCreditsScreen extends StatelessWidget {
                       style: TextStyle(color: Colors.grey[500]),
                     ),
                     const SizedBox(height: 24),
-                    ElevatedButton.icon(
-                      onPressed: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder:
-                                (_) => CreateCreditScreen(clientId: clientId, officeId: officeId),
-                          ),
-                        );
-                      },
-                      icon: const Icon(Icons.add),
-                      label: const Text('Crear nuevo crédito'),
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                      ),
-                    ),
                   ],
                 ),
               ),

@@ -232,20 +232,27 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
     );
   }
 
-  Widget _buildEmptyState() {
+  Widget _buildInactiveAccountScreen() {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.people_alt_outlined, size: 64, color: Colors.grey[400]),
-          const SizedBox(height: 16),
-          Text(
-            'No hay cobradores registrados',
-            style: TextStyle(fontSize: 18, color: Colors.grey[600]),
-          ),
-          const SizedBox(height: 8),
-          Text('Presiona el botón + para agregar uno', style: TextStyle(color: Colors.grey[500])),
-        ],
+      child: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.error_outline, size: 64, color: Colors.orange),
+            const SizedBox(height: 20),
+            Text(
+              'Cuenta no activa',
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.grey[800]),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Tu cuenta de propietario no está activa actualmente. Por favor, contacta al administrador para más información.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -255,31 +262,9 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
     if (isLoading) return const Center(child: CircularProgressIndicator());
 
     if (!isOwnerActive || ownerOfficeId == null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(20.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(Icons.error_outline, size: 64, color: Colors.orange),
-              const SizedBox(height: 20),
-              Text(
-                'Cuenta no activa',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.grey[800],
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Tu cuenta de propietario no está activa actualmente. Por favor, contacta al administrador para más información.',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 16, color: Colors.grey[600]),
-              ),
-            ],
-          ),
-        ),
+      return Scaffold(
+        appBar: AppBar(title: Text('Gestión de Cobradores')),
+        body: _buildInactiveAccountScreen(),
       );
     }
 
