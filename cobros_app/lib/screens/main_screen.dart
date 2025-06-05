@@ -11,7 +11,7 @@ import 'roles/owner/Register_Collector.dart';
 import 'roles/collector/collector_home_screen.dart';
 import 'roles/owner/office.dart';
 import 'clients/clients_Screen.dart';
-import 'roles/owner/routes/Liquidation_Report_Screen.dart';
+import 'roles/owner/Liquidations/Liquidation_Report_Screen.dart';
 import '../screens/roles/owner/routes/routes_screen.dart';
 import '../utils/app_theme.dart';
 
@@ -238,31 +238,20 @@ class _MainScreenState extends State<MainScreen> {
   Widget _buildAppBarTitle() {
     if (_isLoading) return const Text('Cargando...');
 
-    String roleName = RoleHelper.getRoleName(_currentUserData?['role']);
-    IconData roleIcon = RoleHelper.getRoleIcon(_currentUserData?['role']);
-
     return Row(
       children: [
         Text(
           'CLIQ',
           style: TextStyle(
             fontFamily: AppTheme.primaryFont, //nombre de tu fuente
-            fontSize: 24, // Tamaño de la fuente
+            fontSize: 30, // Tamaño de la fuente
             color: AppTheme.neutroColor, // Color del texto
             fontWeight: FontWeight.bold, // Peso de la fuente (opcional)
           ),
         ),
         const SizedBox(width: 20),
-        Icon(roleIcon, color: AppTheme.neutroColor),
+
         const SizedBox(width: 8),
-        Text(
-          '$roleName',
-          style: TextStyle(
-            fontFamily: AppTheme.secondaryFont, //nombre de tu fuente
-            fontSize: 15, // Tamaño de la fuente
-            color: Colors.white, // Color del texto
-          ),
-        ),
       ],
     );
   }
@@ -292,6 +281,8 @@ class _MainScreenState extends State<MainScreen> {
 
   Widget _buildDrawer(BuildContext context) {
     String roleName = RoleHelper.getRoleName(_currentUserData?['role']);
+
+    IconData roleIcon = RoleHelper.getRoleIcon(_currentUserData?['role']);
     return Drawer(
       width: MediaQuery.of(context).size.width * 0.8,
       shape: const RoundedRectangleBorder(
@@ -314,7 +305,7 @@ class _MainScreenState extends State<MainScreen> {
               currentAccountPicture: CircleAvatar(
                 radius: 30,
                 backgroundColor: AppTheme.neutroColor,
-                child: Icon(Icons.person, size: 40, color: AppTheme.primaryColor),
+                child: Icon(roleIcon, size: 40, color: AppTheme.primaryColor),
               ),
               decoration: BoxDecoration(color: AppTheme.primaryColor),
             ),
@@ -357,13 +348,11 @@ class _MainScreenState extends State<MainScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  CircleAvatar(
-                    radius: 30,
-                    backgroundColor: AppTheme.neutroColor,
-                    child: Icon(Icons.person, size: 40, color: AppTheme.primaryColor),
+                  Icon(
+                    roleIcon,
+                    color: AppTheme.neutroColor,
+                    size: 80, // Cambia este valor al tamaño que necesites
                   ),
-                  const SizedBox(height: 8),
-                  Icon(roleIcon, color: AppTheme.neutroColor),
                   SizedBox(width: 8),
                   Text('$roleName', style: const TextStyle(color: Colors.white)),
                 ],

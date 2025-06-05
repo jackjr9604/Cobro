@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:math' as math;
+import '../../../../utils/app_theme.dart';
 
 class LiquidationReportScreen extends StatefulWidget {
   const LiquidationReportScreen({super.key});
@@ -507,6 +508,7 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.view_column),
+            color: AppTheme.neutroColor,
             tooltip: 'Seleccionar columnas',
             onPressed: _showColumnSelectionDialog,
           ),
@@ -530,11 +532,13 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
               }
             },
             icon: const Icon(Icons.date_range),
+
             label: const Text('Filtrar por fecha'),
           ),
           PopupMenuButton<String>(
             onSelected: _setQuickDateRange,
-            icon: const Icon(Icons.filter_alt),
+            icon: const Icon(Icons.filter_alt, color: AppTheme.neutroColor),
+
             itemBuilder:
                 (context) => [
                   const PopupMenuItem(value: 'Hoy', child: Text('Hoy')),
@@ -548,7 +552,7 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
           ),
 
           IconButton(
-            icon: const Icon(Icons.clear),
+            icon: const Icon(Icons.clear, color: AppTheme.neutroColor),
             onPressed: _clearFilters,
             tooltip: 'Limpiar todos los filtros',
           ),
