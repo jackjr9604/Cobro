@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../routes/pays_details.dart';
-import '../routes/Collector_Settlement_Screen.dart';
+import 'Liquidation_Screen.dart';
 
 class CreditsRoutesScreen extends StatelessWidget {
+  const CreditsRoutesScreen({super.key, required this.collectorId, required this.collectorName});
+
   final String collectorId;
   final String collectorName;
-
-  const CreditsRoutesScreen({super.key, required this.collectorId, required this.collectorName});
 
   Future<Map<String, dynamic>> fetchClientName(String clientId) async {
     final doc = await FirebaseFirestore.instance.collection('clients').doc(clientId).get();
@@ -15,7 +15,11 @@ class CreditsRoutesScreen extends StatelessWidget {
   }
 
   int countPayments(Map<String, dynamic> data) {
-    return data.keys.where((k) => k.startsWith('pay')).length;
+    // Ahora solo cuenta las llaves que empiezan con "pay"
+    // Y cuyo valor es un mapa (un pago real)
+    return data.entries
+        .where((e) => e.key.startsWith('pay') && e.value is Map<String, dynamic>)
+        .length;
   }
 
   double sumPayments(Map<String, dynamic> data) {
@@ -26,6 +30,49 @@ class CreditsRoutesScreen extends StatelessWidget {
         .fold(0.0, (prev, el) => prev + el);
   }
 
+  Color _getMethodColor(String method) {
+    switch (method.toLowerCase()) {
+      case 'diario':
+        return Colors.blue;
+      case 'semanal':
+        return Colors.green;
+      case 'quincenal':
+        return Colors.orange;
+      case 'mensual':
+        return Colors.purple;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  IconData _getMethodIcon(String method) {
+    switch (method.toLowerCase()) {
+      case 'diario':
+        return Icons.calendar_view_day;
+      case 'semanal':
+        return Icons.calendar_view_week;
+      case 'quincenal':
+        return Icons.event_available;
+      case 'mensual':
+        return Icons.calendar_today;
+      default:
+        return Icons.payment;
+    }
+  }
+
+  Widget _buildInfoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text('$label: ', style: TextStyle(fontSize: 14, color: Colors.grey[600])),
+          Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final creditsQuery = FirebaseFirestore.instance
@@ -34,7 +81,10 @@ class CreditsRoutesScreen extends StatelessWidget {
         .where('isActive', isEqualTo: true);
 
     return Scaffold(
-      appBar: AppBar(title: Text('Cobros de $collectorName')),
+      appBar: AppBar(
+        title: Text('Cobros de $collectorName'),
+        iconTheme: IconThemeData(color: Colors.white),
+      ),
       body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
         stream: creditsQuery.snapshots(),
         builder: (context, snapshot) {
@@ -42,7 +92,24 @@ class CreditsRoutesScreen extends StatelessWidget {
             return const Center(child: CircularProgressIndicator());
           }
           if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return const Center(child: Text('No hay cobros activos'));
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.credit_card_off, size: 64, color: Colors.grey[400]),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'No hay créditos activos',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Este cobrador no tiene créditos activos actualmente',
+                    style: TextStyle(color: Colors.grey[600]),
+                  ),
+                ],
+              ),
+            );
           }
 
           final credits = snapshot.data!.docs;
@@ -63,6 +130,9 @@ class CreditsRoutesScreen extends StatelessWidget {
               final totalPaid = sumPayments(data);
               final restPay = (totalCredit - totalPaid);
 
+              final methodColor = _getMethodColor(method);
+              final methodIcon = _getMethodIcon(method);
+
               return FutureBuilder<Map<String, dynamic>>(
                 future: fetchClientName(clientId),
                 builder: (context, clientSnapshot) {
@@ -70,43 +140,95 @@ class CreditsRoutesScreen extends StatelessWidget {
 
                   return Card(
                     margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: ListTile(
-                        title: Text(
-                          'Cliente: $clientName',
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        subtitle: Column(
+                    elevation: 3,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => PaysDetails(credit: creditDoc)),
+                        );
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const SizedBox(height: 4),
-                            Text('Préstamo: \$${credit.toStringAsFixed(2)}'),
-                            Text('Interés: ${interest.toStringAsFixed(2)}%'),
-                            Text('Total crédito: \$${totalCredit.toStringAsFixed(2)}'),
-                            Text('Forma de pago: $method'),
-                            Text('Cuotas: $cout'),
-                            Text('Valor de cuota: \$${paymentValue.toStringAsFixed(2)}'),
-                            const SizedBox(height: 4),
-                            Text('Abonos realizados: $paymentsCount'),
-                            Text('Total abonado: \$${totalPaid.toStringAsFixed(2)}'),
-                            Text('faltante: \$${restPay.toStringAsFixed(2)}'),
-                          ],
-                        ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            IconButton(
-                              icon: const Icon(Icons.article),
-                              onPressed: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => PaysDetails(credit: creditDoc),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    clientName,
+                                    style: const TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
                                   ),
-                                );
-                              },
+                                ),
+                                Chip(
+                                  label: Text(
+                                    '${paymentsCount}/$cout',
+                                    style: const TextStyle(color: Colors.white),
+                                  ),
+                                  backgroundColor:
+                                      paymentsCount == cout
+                                          ? Colors.green
+                                          : Theme.of(context).primaryColor,
+                                ),
+                              ],
                             ),
+                            const SizedBox(height: 12),
+
+                            // Barra de progreso
+
+                            // Información resumida
+                            Row(
+                              children: [
+                                Icon(methodIcon, size: 18, color: methodColor),
+                                const SizedBox(width: 8),
+                                Text(
+                                  method,
+                                  style: TextStyle(fontWeight: FontWeight.bold, color: methodColor),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+
+                            LinearProgressIndicator(
+                              value: paymentsCount / cout,
+                              backgroundColor: Colors.grey[200],
+                              color:
+                                  paymentsCount == cout
+                                      ? Colors.green
+                                      : Theme.of(context).primaryColor,
+                            ),
+                            const SizedBox(height: 8),
+
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    _buildInfoRow('Total', '\$${totalCredit.toStringAsFixed(2)}'),
+                                    _buildInfoRow('Abonado', '\$${totalPaid.toStringAsFixed(2)}'),
+                                  ],
+                                ),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    _buildInfoRow('Faltante', '\$${restPay.toStringAsFixed(2)}'),
+                                    _buildInfoRow('Cuota', '\$${paymentValue.toStringAsFixed(2)}'),
+                                  ],
+                                ),
+                              ],
+                            ),
+
+                            // Botones de acción
+                            const SizedBox(height: 12),
                           ],
                         ),
                       ),
@@ -118,21 +240,28 @@ class CreditsRoutesScreen extends StatelessWidget {
           );
         },
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder:
-                  (context) => CollectorLiquidationScreen(
-                    collectorId: collectorId,
-                    collectorName: collectorName,
-                  ),
-            ),
-          );
-        },
-        icon: const Icon(Icons.monetization_on),
-        label: const Text('Liquidar'),
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const SizedBox(height: 12),
+          FloatingActionButton.extended(
+            heroTag: 'settlement',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder:
+                      (context) => CollectorLiquidationScreen(
+                        collectorId: collectorId,
+                        collectorName: collectorName,
+                      ),
+                ),
+              );
+            },
+            icon: const Icon(Icons.monetization_on),
+            label: const Text('Liquidar'),
+          ),
+        ],
       ),
     );
   }
