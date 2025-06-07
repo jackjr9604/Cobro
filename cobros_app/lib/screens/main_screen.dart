@@ -3,7 +3,7 @@ import '../screens/roles/admin/users_screen.dart';
 import 'package:flutter/material.dart';
 import '../services/auth_service.dart';
 import '../services/user_service.dart';
-import 'home_screen.dart';
+import '../screens/roles/owner/home_owner_screen.dart';
 import 'roles/collector/pays/cobros_actives_screen.dart';
 import 'roles/admin/admin_home_screen.dart'; // Importación corregida
 import '../utils/responsive.dart';
@@ -15,6 +15,7 @@ import 'roles/owner/Liquidations/Liquidation_Report_Screen.dart';
 import '../screens/roles/owner/routes/routes_screen.dart';
 import '../utils/app_theme.dart';
 import '../screens/roles/owner/member_ship_screen.dart';
+import '../screens/home_screen.dart';
 
 class MainScreen extends StatefulWidget {
   final String userRole; // Añade este parámetro
@@ -111,7 +112,7 @@ class _MainScreenState extends State<MainScreen> {
         return [const AdminHomeScreen(), const UsersScreen(), const OfficesScreen()];
       case 'owner':
         return [
-          const HomeScreen(),
+          const OwnerDashboardScreen(),
           const OfficeManagementScreen(),
           const RegisterCollector(),
           const ClientsScreen(),

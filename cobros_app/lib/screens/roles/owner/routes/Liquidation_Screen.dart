@@ -191,38 +191,68 @@ class _CollectorLiquidationScreenState extends State<CollectorLiquidationScreen>
 
     setState(() => isLoading = true);
     try {
-      // Obtiene el nuevo valor de base del controlador
       final newBase = double.tryParse(_baseController.text) ?? _originalBase;
-
-      // Actualiza la base del cobrador con el nuevo valor
-      await FirebaseFirestore.instance.collection('users').doc(widget.collectorId).update({
-        'base': newBase,
-      });
-
-      final uuid = Uuid();
-      final String liquidationId = uuid.v4();
       final liquidationDate = selectedDate ?? DateTime.now();
 
-      // Resto del código de liquidación...
+      // Obtener datos actuales del cobrador
+      final collectorDoc =
+          await FirebaseFirestore.instance.collection('users').doc(widget.collectorId).get();
+
+      final lastLiquidation = collectorDoc.data()?['lastLiquidationDate'] as Timestamp?;
+      final currentMonthlyCollection = (collectorDoc.data()?['monthlyCollection'] ?? 0).toDouble();
+
+      // Determinar si es un nuevo mes
+      final isNewMonth =
+          lastLiquidation == null ||
+          lastLiquidation.toDate().month != liquidationDate.month ||
+          lastLiquidation.toDate().year != liquidationDate.year;
+
+      // Actualizar documento del cobrador
+      final collectorUpdate = {
+        'base': newBase,
+        'lastLiquidationDate': liquidationDate,
+        'monthlyCollection': isNewMonth ? netTotal : currentMonthlyCollection + netTotal,
+      };
+
+      // Actualizar documento de la oficina
+      final officeUpdate = {
+        'totalBalance': FieldValue.increment(netTotal), // Acumula el neto al balance total
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
+      // Ejecutar ambas actualizaciones en un batch para atomicidad
       final batch = FirebaseFirestore.instance.batch();
+
+      // 1. Actualizar cobrador
+      final collectorRef = FirebaseFirestore.instance.collection('users').doc(widget.collectorId);
+      batch.update(collectorRef, collectorUpdate);
+
+      // 2. Actualizar oficina
+      final officeRef = FirebaseFirestore.instance.collection('offices').doc(officeId);
+      batch.update(officeRef, officeUpdate);
+
+      // 3. Marcar pagos como liquidados
       for (var payment in paymentsOfDay) {
         batch.update(payment['creditRef'], {'${payment['payKey']}.isActive': false});
       }
+
       await batch.commit();
 
+      // Crear documento de liquidación
       final liquidationData = {
         'collectorId': widget.collectorId,
         'collectorName': widget.collectorName,
         'officeId': officeId,
         'date': liquidationDate,
         'totalCollected': totalCollected,
-        'collectorBase': _originalBase, // Guarda la base original en la liquidación
-        'newBase': newBase, // Guarda la nueva base como campo separado
+        'collectorBase': _originalBase,
+        'newBase': newBase,
         'discounts': {
           for (var item in _discountItems) item.type: (double.tryParse(item.controller.text) ?? 0),
         },
         'discountTotal': discountTotal,
         'netTotal': netTotal,
+        'isNewMonth': isNewMonth,
         'payments':
             paymentsOfDay
                 .map(
@@ -239,14 +269,14 @@ class _CollectorLiquidationScreenState extends State<CollectorLiquidationScreen>
 
       await FirebaseFirestore.instance
           .collection('liquidations')
-          .doc(liquidationId)
+          .doc(Uuid().v4())
           .set(liquidationData);
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Liquidación realizada con éxito. Base actualizada.'),
+        SnackBar(
+          content: Text('Liquidación realizada. Balance de oficina actualizado.'),
           backgroundColor: Colors.green,
-          duration: Duration(seconds: 3),
+          duration: const Duration(seconds: 3),
         ),
       );
 
@@ -260,7 +290,6 @@ class _CollectorLiquidationScreenState extends State<CollectorLiquidationScreen>
           _DiscountItem(type: 'Gasolina', controller: TextEditingController())
             ..controller.addListener(_updateTotals),
         ];
-        // Actualiza la base local para futuras liquidaciones
         _originalBase = newBase;
         collectorBase = newBase;
       });

@@ -73,11 +73,7 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
 
       if (startDate != null && endDate != null) {
         final start = DateTime(startDate!.year, startDate!.month, startDate!.day);
-        final end = DateTime(
-          endDate!.year,
-          endDate!.month,
-          endDate!.day,
-        ).add(const Duration(days: 1));
+        final end = endDate!.add(Duration(days: 1));
         query = query.where('date', isGreaterThanOrEqualTo: start).where('date', isLessThan: end);
       }
 
