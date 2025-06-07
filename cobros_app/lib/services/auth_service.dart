@@ -28,13 +28,48 @@ class AuthService {
     }
   }
 
-  // Iniciar sesión con email y contraseña
+  // Agrega este método a tu AuthService
+  Future<void> checkAndUpdateMembershipStatus() async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    final userDoc = _firestore.collection('users').doc(user.uid);
+    final doc = await userDoc.get();
+
+    if (!doc.exists) return;
+
+    final data = doc.data();
+    final activeStatus = data?['activeStatus'] as Map<String, dynamic>?;
+
+    if (activeStatus == null) return;
+
+    final now = DateTime.now();
+    final endDate = (activeStatus['endDate'] as Timestamp).toDate();
+    final isActive = activeStatus['isActive'] as bool;
+
+    // Si la membresía está vencida pero aún aparece como activa
+    if (now.isAfter(endDate)) {
+      await userDoc.update({
+        'activeStatus': {
+          'isActive': false,
+          'startDate': activeStatus['startDate'],
+          'endDate': activeStatus['endDate'],
+        },
+      });
+    }
+    ;
+  }
+
+  // Modifica el método signInWithEmailAndPassword para que verifique la membresía
   Future<void> signInWithEmailAndPassword({required String email, required String password}) async {
     if (email.isEmpty || password.isEmpty) {
       throw AuthException('Correo y contraseña son obligatorios');
     }
     try {
       await FirebaseAuth.instance.signInWithEmailAndPassword(email: email, password: password);
+
+      // Verificar el estado de la membresía después de iniciar sesión
+      await checkAndUpdateMembershipStatus();
     } on FirebaseAuthException catch (e) {
       print('🔥 FirebaseAuthException: code=${e.code}, message=${e.message}');
       if (e.code == 'unknown-error') {

@@ -14,6 +14,7 @@ import 'clients/clients_Screen.dart';
 import 'roles/owner/Liquidations/Liquidation_Report_Screen.dart';
 import '../screens/roles/owner/routes/routes_screen.dart';
 import '../utils/app_theme.dart';
+import '../screens/roles/owner/member_ship_screen.dart';
 
 class MainScreen extends StatefulWidget {
   final String userRole; // Añade este parámetro
@@ -116,6 +117,7 @@ class _MainScreenState extends State<MainScreen> {
           const ClientsScreen(),
           const RoutesScreen(),
           const LiquidationReportScreen(),
+          const MembershipScreen(),
         ];
       case 'collector':
         return [const CollectorHomeScreen(), const ClientsScreen(), const CobrosScreen()];
@@ -190,6 +192,13 @@ class _MainScreenState extends State<MainScreen> {
           selected: _selectedIndex == 5,
           selectedTileColor: Colors.blue[100],
           onTap: () => _updateIndex(5, context),
+        ),
+        ListTile(
+          leading: const Icon(Icons.card_membership),
+          title: const Text('Membresia'),
+          selected: _selectedIndex == 6,
+          selectedTileColor: Colors.blue[100],
+          onTap: () => _updateIndex(6, context),
         ),
       ]);
     } else if (_currentUserData?['role'] == 'collector') {
