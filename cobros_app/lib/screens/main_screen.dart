@@ -241,7 +241,7 @@ class _MainScreenState extends State<MainScreen> {
         toolbarHeight: isMobile ? 56 : 64,
         backgroundColor: Theme.of(context).primaryColor,
         automaticallyImplyLeading: isMobile,
-        actions: _buildAppBarActions(),
+
         iconTheme: IconThemeData(
           color: Colors.white, // Cambia el color del ícono del menú hamburguesa
         ),
@@ -271,31 +271,8 @@ class _MainScreenState extends State<MainScreen> {
           ),
         ),
         const SizedBox(width: 20),
-
-        const SizedBox(width: 8),
       ],
     );
-  }
-
-  List<Widget> _buildAppBarActions() {
-    return [
-      if (!_isLoading && _currentUserData != null)
-        GestureDetector(
-          onTap: () {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(_currentUserData?['email'] ?? 'No disponible'),
-                backgroundColor: AppTheme.primaryColor,
-                duration: const Duration(seconds: 3),
-              ),
-            );
-          },
-          child: const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16),
-            child: Icon(Icons.account_circle),
-          ),
-        ),
-    ];
   }
 
   Widget _buildDrawer(BuildContext context) {
@@ -360,7 +337,7 @@ class _MainScreenState extends State<MainScreen> {
       child: Column(
         children: [
           Container(
-            height: 150,
+            height: 200,
             color: AppTheme.primaryColor,
             padding: const EdgeInsets.all(16),
             child: Center(
@@ -374,6 +351,11 @@ class _MainScreenState extends State<MainScreen> {
                   ),
                   SizedBox(width: 8),
                   Text('$roleName', style: const TextStyle(color: Colors.white)),
+                  const SizedBox(height: 20),
+                  Text(
+                    _currentUserData?['email'] ?? 'ejemplo@ejemplo.com',
+                    style: const TextStyle(fontSize: 14, color: Colors.white),
+                  ),
                 ],
               ),
             ),
