@@ -68,16 +68,37 @@ class _MainScreenState extends State<MainScreen> {
 
   Future<void> _loadUserData() async {
     try {
+      if (mounted) {
+        setState(() => _isLoading = true);
+      }
+
+      debugPrint('Iniciando carga de datos del usuario...');
       final userData = await _userService.getCurrentUserData();
-      setState(() {
-        _currentUserData = userData;
-        _isLoading = false;
-      });
-    } catch (e) {
-      // Maneja cualquier error que ocurra al cargar los datos
-      setState(() {
-        _isLoading = false;
-      });
+      debugPrint('Datos del usuario obtenidos: ${userData?.toString()}');
+
+      if (mounted) {
+        setState(() {
+          _currentUserData = userData;
+          _isLoading = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Datos actualizados'), duration: Duration(seconds: 1)),
+        );
+      }
+    } catch (e, stackTrace) {
+      debugPrint('Error al cargar datos: $e');
+      debugPrint('Stack trace: $stackTrace');
+
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al actualizar: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
     }
   }
 
@@ -261,7 +282,6 @@ class _MainScreenState extends State<MainScreen> {
       if (!_isLoading && _currentUserData != null)
         GestureDetector(
           onTap: () {
-            // Mostrar un SnackBar al tocar el ícono en pantallas táctiles
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text(_currentUserData?['email'] ?? 'No disponible'),
@@ -275,7 +295,6 @@ class _MainScreenState extends State<MainScreen> {
             child: Icon(Icons.account_circle),
           ),
         ),
-      IconButton(icon: const Icon(Icons.refresh), onPressed: _loadUserData),
     ];
   }
 
