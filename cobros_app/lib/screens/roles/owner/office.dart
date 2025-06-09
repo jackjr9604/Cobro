@@ -188,6 +188,7 @@ class _OfficeManagementScreenState extends State<OfficeManagementScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text('Gestión de Oficina'),
+
         actions:
             _hasOffice
                 ? [

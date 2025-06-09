@@ -24,11 +24,14 @@ class AppTheme {
         secondary: secondaryColor,
         error: errorColor,
       ),
+
       scaffoldBackgroundColor: Colors.white,
       appBarTheme: const AppBarTheme(
         centerTitle: true,
         elevation: 4,
         backgroundColor: primaryColor,
+        iconTheme: IconThemeData(color: neutroColor),
+        actionsIconTheme: IconThemeData(color: neutroColor),
         titleTextStyle: TextStyle(
           fontFamily: primaryFont,
           fontSize: 28,

@@ -18,9 +18,10 @@ import '../screens/roles/owner/member_ship_screen.dart';
 import '../screens/home_screen.dart';
 
 class MainScreen extends StatefulWidget {
-  final String userRole; // Añade este parámetro
+  final String userRole;
+  final Widget? child;
 
-  const MainScreen({super.key, required this.userRole}); // Actualiza el constructor
+  const MainScreen({super.key, required this.userRole, this.child});
 
   @override
   State<MainScreen> createState() => _MainScreenState();
@@ -260,7 +261,7 @@ class _MainScreenState extends State<MainScreen> {
       body: Row(
         children: [
           if (!isMobile) _buildDesktopMenu(context),
-          Expanded(child: screens[_selectedIndex]),
+          Expanded(child: widget.child ?? screens[_selectedIndex]),
         ],
       ),
     );

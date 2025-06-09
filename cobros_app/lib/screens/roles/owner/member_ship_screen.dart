@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:io';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter/services.dart';
 
 class MembershipScreen extends StatefulWidget {
   const MembershipScreen({super.key});
@@ -13,6 +17,9 @@ class MembershipScreen extends StatefulWidget {
 class _MembershipScreenState extends State<MembershipScreen> {
   Map<String, dynamic>? _userData;
   bool _isLoading = true;
+  File? _comprobanteImage;
+  final TextEditingController _transactionIdController = TextEditingController();
+  bool _showPaymentSection = false;
 
   @override
   void initState() {
@@ -30,6 +37,124 @@ class _MembershipScreenState extends State<MembershipScreen> {
       _userData = doc.data();
       _isLoading = false;
     });
+  }
+
+  Future<void> _pickImage() async {
+    final pickedFile = await ImagePicker().pickImage(source: ImageSource.gallery);
+    if (pickedFile != null) {
+      setState(() {
+        _comprobanteImage = File(pickedFile.path);
+      });
+    }
+  }
+
+  Future<void> _sendViaWhatsApp() async {
+    if (_transactionIdController.text.isEmpty && _comprobanteImage == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Por favor ingresa el número de transacción o adjunta un comprobante'),
+        ),
+      );
+      return;
+    }
+
+    final user = FirebaseAuth.instance.currentUser;
+    final userName = _userData?['displayName'] ?? 'Usuario';
+    final userEmail = user?.email ?? 'No especificado';
+    final uid = _userData?['uid'] ?? 'uid';
+
+    // Construir el mensaje
+    String message = 'Hola, quiero renovar mi membresía.\n\n';
+    message += '*Nombre:* $userName\n';
+    message += '*Email:* $userEmail\n\n';
+    message += '*UID:* $uid\n\n';
+
+    if (_transactionIdController.text.isNotEmpty) {
+      message += '*Número de transacción:* ${_transactionIdController.text}\n';
+    } else {
+      message += '(Adjunté comprobante de pago)\n';
+    }
+
+    message += '\nPor favor verifica mi pago. ¡Gracias!';
+
+    // Número de WhatsApp de la empresa (reemplaza con tu número)
+    const whatsappNumber = '573506191443'; // Formato internacional sin signos
+
+    final urlsToTry = [
+      // Intentar con el esquema 'whatsapp://'
+      Uri.parse('whatsapp://send?phone=$whatsappNumber&text=${Uri.encodeComponent(message)}'),
+      // Intentar con el esquema 'https://wa.me/'
+      Uri.parse('https://wa.me/$whatsappNumber?text=${Uri.encodeComponent(message)}'),
+      // Intentar solo con el número (para que el usuario elija cómo abrirlo)
+      Uri.parse(
+        'https://api.whatsapp.com/send?phone=$whatsappNumber&text=${Uri.encodeComponent(message)}',
+      ),
+    ];
+
+    bool whatsappOpened = false;
+
+    for (final url in urlsToTry) {
+      try {
+        if (await canLaunchUrl(url)) {
+          await launchUrl(url, mode: LaunchMode.externalApplication);
+          whatsappOpened = true;
+          break;
+        }
+      } catch (e) {
+        debugPrint('Error al intentar abrir WhatsApp: $e');
+      }
+    }
+
+    if (!whatsappOpened) {
+      // Si no se pudo abrir WhatsApp, mostrar opciones al usuario
+      _showWhatsAppNotInstalledDialog(context, message, whatsappNumber);
+    }
+  }
+
+  void _showWhatsAppNotInstalledDialog(
+    BuildContext context,
+    String message,
+    String whatsappNumber,
+  ) {
+    showDialog(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('No se pudo abrir WhatsApp'),
+            content: const Text(
+              'Parece que WhatsApp no está instalado o no se pudo abrir. '
+              'Puedes copiar la información y enviarla manualmente o instalar WhatsApp.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  // Copiar el mensaje al portapapeles
+                  Clipboard.setData(ClipboardData(text: 'Número: $whatsappNumber\n\n$message'));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Información copiada al portapapeles')),
+                  );
+                },
+                child: const Text('COPIAR INFORMACIÓN'),
+              ),
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  // Abrir Play Store/App Store para instalar WhatsApp
+                  launchUrl(
+                    Uri.parse(
+                      Platform.isAndroid
+                          ? 'https://play.google.com/store/apps/details?id=com.whatsapp'
+                          : 'https://apps.apple.com/app/whatsapp-messenger/id310633997',
+                    ),
+                    mode: LaunchMode.externalApplication,
+                  );
+                },
+                child: const Text('INSTALAR WHATSAPP'),
+              ),
+            ],
+          ),
+    );
   }
 
   Widget _buildStatusIndicator(bool isActive) {
@@ -73,6 +198,155 @@ class _MembershipScreenState extends State<MembershipScreen> {
             Text(
               date != null ? DateFormat('dd MMM yyyy').format(date.toDate()) : 'No definida',
               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPaymentSection() {
+    return Card(
+      elevation: 4,
+      margin: const EdgeInsets.symmetric(vertical: 16),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Realizar pago manual',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 16),
+
+            // Información de pago Nequi
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.purple[50],
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.purple[200]!),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Realiza el pago a nuestro número Nequi:',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      const Icon(Icons.phone_android, color: Colors.purple),
+                      const SizedBox(width: 8),
+                      SelectableText(
+                        '3506191443', // Reemplaza con tu número Nequi real
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.purple,
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.copy),
+                        onPressed: () {
+                          // Copiar al portapapeles
+                          Clipboard.setData(const ClipboardData(text: '3506191443'));
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Número copiado al portapapeles')),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Valor a pagar: \$50.000 COP',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 20),
+            const Text(
+              'Después de realizar el pago, por favor:',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+
+            // Opción 1: Subir comprobante (para adjuntar en WhatsApp)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('1. Adjunta una imagen del comprobante (opcional):'),
+                const SizedBox(height: 8),
+                ElevatedButton(onPressed: _pickImage, child: const Text('Seleccionar imagen')),
+                if (_comprobanteImage != null) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    height: 150,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(8),
+                      image: DecorationImage(
+                        image: FileImage(_comprobanteImage!),
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.delete, color: Colors.red),
+                    onPressed: () {
+                      setState(() {
+                        _comprobanteImage = null;
+                      });
+                    },
+                  ),
+                ],
+              ],
+            ),
+
+            const SizedBox(height: 20),
+
+            // Opción 2: Ingresar número de transacción
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('2. Ingresa el número de transacción Nequi:'),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _transactionIdController,
+                  decoration: const InputDecoration(
+                    hintText: 'Número de transacción Nequi',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 20),
+
+            // Botón para enviar por WhatsApp
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: _sendViaWhatsApp,
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  backgroundColor: Colors.green,
+                ),
+                icon: const Icon(Icons.send, color: Colors.white),
+                label: const Text('ENVIAR POR WHATSAPP', style: TextStyle(color: Colors.white)),
+              ),
+            ),
+
+            const SizedBox(height: 10),
+            const Text(
+              'Nota: Al hacer clic se abrirá WhatsApp con un mensaje predefinido. '
+              'Si adjuntaste una imagen, deberás enviarla manualmente en la conversación.',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+              textAlign: TextAlign.center,
             ),
           ],
         ),
@@ -169,8 +443,9 @@ class _MembershipScreenState extends State<MembershipScreen> {
               const SizedBox(height: 16),
               ElevatedButton(
                 onPressed: () {
-                  // Navegar a pantalla de renovación
-                  // Navigator.push(context, MaterialPageRoute(builder: (_) => RenewMembershipScreen()));
+                  setState(() {
+                    _showPaymentSection = true;
+                  });
                 },
                 style: ElevatedButton.styleFrom(
                   padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
@@ -178,6 +453,9 @@ class _MembershipScreenState extends State<MembershipScreen> {
                 child: const Text('RENOVAR MEMBRESÍA'),
               ),
             ],
+
+            // Sección de pago
+            if (_showPaymentSection) _buildPaymentSection(),
           ],
         ),
       ),
@@ -212,5 +490,11 @@ class _MembershipScreenState extends State<MembershipScreen> {
     } else {
       return 'Menos de 1 hora restante';
     }
+  }
+
+  @override
+  void dispose() {
+    _transactionIdController.dispose();
+    super.dispose();
   }
 }

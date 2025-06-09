@@ -3,6 +3,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import '../owner/Liquidations/Liquidation_Report_Screen.dart';
+import '../owner/member_ship_screen.dart';
+import '../owner/office.dart';
 
 class OwnerDashboardScreen extends StatefulWidget {
   const OwnerDashboardScreen({super.key});
@@ -14,7 +16,7 @@ class OwnerDashboardScreen extends StatefulWidget {
 class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
   final _auth = FirebaseAuth.instance;
   final _firestore = FirebaseFirestore.instance;
-  final currencyFormat = NumberFormat.currency(locale: 'es_CO', symbol: '\$');
+  final currencyFormat = NumberFormat('\$ #,##0', 'es_CO');
 
   Map<String, dynamic>? _officeData;
   List<Map<String, dynamic>> _collectors = [];
@@ -23,25 +25,50 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
   double _activeCredits = 0;
   double _collectedThisMonth = 0;
   bool _isLoading = true;
+  double _dailyCollection = 0;
 
   @override
   void initState() {
     super.initState();
-    _loadDashboardData();
+    _loadDashboardData().then((_) => _calculateDailyCollection());
   }
 
   Future<void> _loadDashboardData() async {
+    setState(() => _isLoading = true);
     final user = _auth.currentUser;
     if (user == null) return;
 
     try {
-      // 1. Obtener datos de la oficina
+      // 1. Obtener datos del usuario (no solo officeId)
       final userDoc = await _firestore.collection('users').doc(user.uid).get();
-      final officeId = userDoc.data()?['officeId'];
-      if (officeId == null) return;
+      final userData = userDoc.data();
+      if (userData == null) return;
 
+      final officeId = userData['officeId'];
+      if (officeId == null) {
+        setState(() {
+          _isLoading = false;
+          _officeData = null;
+        });
+        return;
+      }
+
+      // 2. Obtener datos de la oficina y estado activo
       final officeDoc = await _firestore.collection('offices').doc(officeId).get();
-      setState(() => _officeData = officeDoc.data());
+      if (!officeDoc.exists) {
+        setState(() {
+          _isLoading = false;
+          _officeData = null;
+        });
+        return;
+      }
+
+      // Combinar datos del usuario y la oficina
+      setState(() {
+        _officeData = officeDoc.data();
+        _officeData?['officeId'] = officeId;
+        _officeData?['userActiveStatus'] = userData['activeStatus']; // Estado activo del usuario
+      });
 
       // 2. Obtener cobradores activos
       final collectorsQuery =
@@ -61,6 +88,8 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
                   return data;
                 }).toList(),
       );
+
+      await _calculateDailyCollection();
 
       // 3. Obtener liquidaciones recientes
       final now = DateTime.now();
@@ -123,23 +152,93 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
     }
   }
 
+  Future<void> _calculateDailyCollection() async {
+    final user = _auth.currentUser;
+    if (user == null) return;
+
+    try {
+      // Obtener officeId del usuario
+      final userDoc = await _firestore.collection('users').doc(user.uid).get();
+      final officeId = userDoc.data()?['officeId'];
+      if (officeId == null) return;
+
+      // Obtener la fecha actual (sin hora)
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+
+      // Consultar todos los créditos de la oficina
+      final creditsQuery =
+          await _firestore.collection('credits').where('officeId', isEqualTo: officeId).get();
+
+      double dailyTotal = 0;
+
+      // Recorrer cada crédito
+      for (var creditDoc in creditsQuery.docs) {
+        final creditData = creditDoc.data(); // Eliminado el cast
+
+        // Buscar todos los campos que comienzan con 'pay'
+        creditData.forEach((key, value) {
+          if (key.startsWith('pay') && value is Map<String, dynamic>) {
+            final payment = value;
+            final paymentDate = (payment['date'] as Timestamp?)?.toDate();
+
+            if (paymentDate != null) {
+              final paymentDay = DateTime(paymentDate.year, paymentDate.month, paymentDate.day);
+
+              if (paymentDay.isAtSameMomentAs(today)) {
+                dailyTotal += (payment['amount'] ?? 0).toDouble();
+              }
+            }
+          }
+        });
+      }
+
+      setState(() => _dailyCollection = dailyTotal);
+    } catch (e) {
+      print('Error calculando recaudo diario: $e');
+    }
+  }
+
   Widget _buildSummaryCard(String title, String value, IconData icon, Color color) {
     return Card(
       elevation: 2,
+      margin: const EdgeInsets.all(6),
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(12.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Row(
               children: [
                 Icon(icon, size: 24, color: color),
                 const SizedBox(width: 8),
-                Text(title, style: const TextStyle(fontSize: 14, color: Colors.grey)),
+                Flexible(
+                  child: Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 14, // Tamaño fijo adecuado para móviles
+                      color: Colors.grey,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 2,
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 8),
-            Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 18, // Tamaño más grande para el valor
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -162,27 +261,80 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
     );
   }
 
-  Widget _buildLiquidationItem(Map<String, dynamic> liquidation) {
-    return ListTile(
-      leading: const Icon(Icons.monetization_on, color: Colors.green),
-      title: Text(
-        liquidation['collectorName'] ?? 'Cobrador desconocido',
-        style: const TextStyle(fontWeight: FontWeight.bold),
+  Widget _buildNoOfficeScreen() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.business, size: 64, color: Colors.blue),
+            const SizedBox(height: 20),
+            Text(
+              'No tienes una oficina registrada',
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.grey[800]),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Para acceder al dashboard, primero necesitas crear una oficina.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+              ),
+              onPressed: () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const OfficeManagementScreen()),
+                );
+                _loadDashboardData(); // Forzar recarga al volver
+              },
+              child: const Text('Crear Oficina', style: TextStyle(fontSize: 18)),
+            ),
+          ],
+        ),
       ),
-      subtitle: Text(DateFormat('dd/MM/yyyy').format((liquidation['date'] as Timestamp).toDate())),
-      trailing: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Text(
-            currencyFormat.format(liquidation['netTotal'] ?? 0),
-            style: const TextStyle(fontWeight: FontWeight.bold),
-          ),
-          Text(
-            '${liquidation['payments']?.length ?? 0} pagos',
-            style: const TextStyle(fontSize: 12),
-          ),
-        ],
+    );
+  }
+
+  Widget _buildInactiveAccountScreen() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.error_outline, size: 64, color: Colors.orange),
+            const SizedBox(height: 20),
+            Text(
+              'Cuenta no activa',
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.grey[800]),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Tu membresía no está activa actualmente. Por favor, realiza el pago para activar tu cuenta.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+              ),
+              onPressed: () {
+                // Navegar a la pantalla de pagos
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const MembershipScreen()),
+                );
+              },
+              child: const Text('Activar Membresía', style: TextStyle(fontSize: 18)),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -193,10 +345,51 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
       return const Center(child: CircularProgressIndicator());
     }
 
+    // Verificar si tiene oficina
+    if (_officeData == null || _officeData!['officeId'] == null) {
+      return Scaffold(
+        appBar: AppBar(
+          title: Text(_officeData?['name'] ?? 'Dashboard'),
+
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.refresh, color: Colors.white),
+              onPressed: _loadDashboardData,
+            ),
+          ],
+        ),
+        body: _buildNoOfficeScreen(),
+      );
+    }
+
+    // Verificar estado activo CORREGIDO
+    final userActiveStatus = _officeData?['userActiveStatus'] as Map<String, dynamic>?;
+    final isActive = userActiveStatus?['isActive'] ?? false;
+
+    if (!isActive) {
+      return Scaffold(
+        appBar: AppBar(
+          title: Text(_officeData?['name'] ?? 'Dashboard'),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.refresh, color: Colors.white),
+              onPressed: _loadDashboardData,
+            ),
+          ],
+        ),
+        body: _buildInactiveAccountScreen(),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: Text(_officeData?['name'] ?? 'Dashboard'),
-        actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: _loadDashboardData)],
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh, color: Colors.white),
+            onPressed: _loadDashboardData,
+          ),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
@@ -208,15 +401,27 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
               'Resumen General',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
-            const SizedBox(height: 12),
             GridView.count(
-              crossAxisCount: 2,
+              crossAxisCount: 2, // Mantener 2 columnas en móviles
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
-              childAspectRatio: 1.5,
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
+              childAspectRatio: 1.4, // Relación de aspecto ligeramente mayor
+              crossAxisSpacing: 8,
+              mainAxisSpacing: 8,
+              padding: const EdgeInsets.all(4),
               children: [
+                _buildSummaryCard(
+                  'Recaudado Hoy',
+                  currencyFormat.format(_dailyCollection),
+                  Icons.today,
+                  Colors.purple,
+                ),
+                _buildSummaryCard(
+                  'Recaudo Mes',
+                  currencyFormat.format(_collectedThisMonth),
+                  Icons.attach_money,
+                  Colors.purple,
+                ),
                 _buildSummaryCard(
                   'Balance Total',
                   currencyFormat.format(_totalBalance),
@@ -224,19 +429,14 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
                   Colors.blue,
                 ),
                 _buildSummaryCard(
-                  'Créditos Activos',
+                  'Créd. Activos',
                   currencyFormat.format(_activeCredits),
                   Icons.credit_card,
                   Colors.green,
                 ),
+
                 _buildSummaryCard(
-                  'Recaudado Mes',
-                  currencyFormat.format(_collectedThisMonth),
-                  Icons.attach_money,
-                  Colors.purple,
-                ),
-                _buildSummaryCard(
-                  'Cobradores Activos',
+                  'Cobradores',
                   _collectors.length.toString(),
                   Icons.people,
                   Colors.orange,
@@ -283,46 +483,8 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
             const SizedBox(height: 24),
 
             // Liquidaciones recientes
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'Liquidaciones Recientes',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                TextButton(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => LiquidationReportScreen()),
-                    );
-                  },
-                  child: const Text('Ver todas'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Card(
-              elevation: 2,
-              child: Column(
-                children: [
-                  for (var liquidation in _recentLiquidations) _buildLiquidationItem(liquidation),
-                  if (_recentLiquidations.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.all(16.0),
-                      child: Text('No hay liquidaciones recientes'),
-                    ),
-                ],
-              ),
-            ),
           ],
         ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          // Acción rápida (ej. agregar cobro)
-        },
-        child: const Icon(Icons.add),
       ),
     );
   }
