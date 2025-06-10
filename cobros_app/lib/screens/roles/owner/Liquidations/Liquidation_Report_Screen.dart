@@ -58,7 +58,9 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
     }
 
     try {
+      // 1. Obtener officeId del usuario
       final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+
       final userData = userDoc.data();
       if (userData == null || userData['officeId'] == null) {
         setState(() => _isLoading = false);
@@ -67,25 +69,33 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
 
       final userOfficeId = userData['officeId'];
 
+      // 2. Construir consulta base
       Query query = FirebaseFirestore.instance
+          .collection('offices')
+          .doc(userOfficeId)
           .collection('liquidations')
-          .where('officeId', isEqualTo: userOfficeId);
+          .orderBy('date', descending: true);
 
+      // 3. Aplicar filtros de fecha si existen
       if (startDate != null && endDate != null) {
         final start = DateTime(startDate!.year, startDate!.month, startDate!.day);
-        final end = endDate!.add(Duration(days: 1));
-        query = query.where('date', isGreaterThanOrEqualTo: start).where('date', isLessThan: end);
+        final end = DateTime(endDate!.year, endDate!.month, endDate!.day + 1);
+        query = query
+            .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+            .where('date', isLessThan: Timestamp.fromDate(end));
       }
 
+      // 4. Ejecutar consulta
       final snapshot = await query.get();
+
       setState(() {
         liquidations = snapshot.docs;
 
-        // Obtener lista de cobradores única y ordenada
+        // Obtener lista única de cobradores
         final collectorsSet = <String>{};
         for (var doc in liquidations) {
           final data = doc.data() as Map<String, dynamic>;
-          final collectorName = (data['collectorName'] ?? '').toString();
+          final collectorName = data['collectorName']?.toString() ?? '';
           if (collectorName.isNotEmpty) collectorsSet.add(collectorName);
         }
         _collectors = collectorsSet.toList()..sort();
@@ -96,6 +106,12 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
     } catch (e) {
       print('Error al obtener liquidaciones: $e');
       setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error al cargar liquidaciones: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -107,39 +123,39 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
     switch (option) {
       case 'Hoy':
         start = DateTime(now.year, now.month, now.day);
-        end = start;
+        end = start.add(Duration(days: 1)); // Incluye todo el día
         break;
       case 'Ayer':
         final yesterday = now.subtract(const Duration(days: 1));
         start = DateTime(yesterday.year, yesterday.month, yesterday.day);
-        end = start;
+        end = start.add(Duration(days: 1));
         break;
       case 'Esta semana':
+        // Calcula el lunes de esta semana
         final daysFromMonday = now.weekday - DateTime.monday;
         start = DateTime(now.year, now.month, now.day - daysFromMonday);
-        end = now;
+        // El fin de semana es hasta el domingo a medianoche
+        end = start.add(Duration(days: 7));
         break;
       case 'Semana pasada':
         final today = DateTime(now.year, now.month, now.day);
         final startOfCurrentWeek = today.subtract(Duration(days: today.weekday - DateTime.monday));
         final startOfLastWeek = startOfCurrentWeek.subtract(const Duration(days: 7));
-        final endOfLastWeek = startOfLastWeek.add(const Duration(days: 6));
-
+        end = startOfCurrentWeek;
         start = startOfLastWeek;
-        end = endOfLastWeek;
         break;
       case 'Este mes':
         start = DateTime(now.year, now.month, 1);
-        end = DateTime(now.year, now.month + 1, 0);
+        end = DateTime(now.year, now.month + 1, 1);
         break;
       case 'Mes pasado':
         final lastMonth = DateTime(now.year, now.month - 1, 1);
         start = lastMonth;
-        end = DateTime(lastMonth.year, lastMonth.month + 1, 0);
+        end = DateTime(lastMonth.year, lastMonth.month + 1, 1);
         break;
       case 'Este año':
         start = DateTime(now.year, 1, 1);
-        end = DateTime(now.year, 12, 31);
+        end = DateTime(now.year + 1, 1, 1);
         break;
       default:
         return;
@@ -147,7 +163,7 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
 
     setState(() {
       startDate = start;
-      endDate = end;
+      endDate = end.subtract(Duration(seconds: 1)); // Ajuste para incluir todo el último día
     });
 
     _fetchLiquidations();
@@ -476,6 +492,7 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
         'totalPayments': 0,
       };
     }
+
     return filteredLiquidations.fold(
       {
         'totalCollected': 0.0,
@@ -497,10 +514,11 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
         totals['totalNet'] += (data['netTotal'] ?? 0).toDouble();
         totals['totalPayments'] += (data['payments'] as List?)?.length ?? 0;
 
+        // Sumar cada tipo de descuento
         totals['totalGasoline'] += (discounts['Gasolina'] ?? 0).toDouble();
-        totals['totalRepuestos'] += (discounts['Repuestos'] ?? 0).toDouble();
         totals['totalAlimentacion'] += (discounts['Alimentación'] ?? 0).toDouble();
         totals['totalTaller'] += (discounts['Taller'] ?? 0).toDouble();
+        totals['totalRepuestos'] += (discounts['Repuestos'] ?? 0).toDouble();
         totals['totalOtros'] += (discounts['Otros'] ?? 0).toDouble();
 
         return totals;

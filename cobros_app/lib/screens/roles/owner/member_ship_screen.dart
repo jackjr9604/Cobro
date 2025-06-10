@@ -241,7 +241,7 @@ class _MembershipScreenState extends State<MembershipScreen> {
                       const Icon(Icons.phone_android, color: Colors.purple),
                       const SizedBox(width: 8),
                       SelectableText(
-                        '3506191443', // Reemplaza con tu número Nequi real
+                        '3506191443',
                         style: const TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
@@ -277,43 +277,12 @@ class _MembershipScreenState extends State<MembershipScreen> {
             const SizedBox(height: 8),
 
             // Opción 1: Subir comprobante (para adjuntar en WhatsApp)
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('1. Adjunta una imagen del comprobante (opcional):'),
-                const SizedBox(height: 8),
-                ElevatedButton(onPressed: _pickImage, child: const Text('Seleccionar imagen')),
-                if (_comprobanteImage != null) ...[
-                  const SizedBox(height: 8),
-                  Container(
-                    height: 150,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(8),
-                      image: DecorationImage(
-                        image: FileImage(_comprobanteImage!),
-                        fit: BoxFit.cover,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.delete, color: Colors.red),
-                    onPressed: () {
-                      setState(() {
-                        _comprobanteImage = null;
-                      });
-                    },
-                  ),
-                ],
-              ],
-            ),
-
-            const SizedBox(height: 20),
 
             // Opción 2: Ingresar número de transacción
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('2. Ingresa el número de transacción Nequi:'),
+                const Text('1. Ingresa el número de transacción Nequi:'),
                 const SizedBox(height: 8),
                 TextField(
                   controller: _transactionIdController,
@@ -322,6 +291,18 @@ class _MembershipScreenState extends State<MembershipScreen> {
                     border: OutlineInputBorder(),
                   ),
                 ),
+              ],
+            ),
+
+            const SizedBox(height: 20),
+
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '2.Dar en el boton de enviar, seras redirigido a un mensaje de Whatsapp, no edites nada y envia el mensaje, opcionalmente adjunta el pantallazo de la transaccion para agilizar el proceso de renovación:',
+                ),
+                const SizedBox(height: 8),
               ],
             ),
 
@@ -337,7 +318,7 @@ class _MembershipScreenState extends State<MembershipScreen> {
                   backgroundColor: Colors.green,
                 ),
                 icon: const Icon(Icons.send, color: Colors.white),
-                label: const Text('ENVIAR POR WHATSAPP', style: TextStyle(color: Colors.white)),
+                label: const Text('ENVIAR', style: TextStyle(color: Colors.white)),
               ),
             ),
 

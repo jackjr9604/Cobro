@@ -6,7 +6,9 @@ import 'credit_detail_screen.dart';
 import 'inactive_credits_screen.dart';
 
 class CobrosScreen extends StatefulWidget {
-  const CobrosScreen({super.key});
+  // Nuevo parámetro
+
+  const CobrosScreen({super.key}); // Actualiza el constructor
 
   @override
   State<CobrosScreen> createState() => _CobrosScreenState();
@@ -71,6 +73,15 @@ class _CobrosScreenState extends State<CobrosScreen> {
       controller.dispose();
     }
     super.dispose();
+  }
+
+  Future<String?> _getOfficeId() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return null;
+
+    final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+
+    return userDoc.data()?['officeId'] as String?;
   }
 
   Future<void> _registerPayment(BuildContext context, DocumentSnapshot creditDoc) async {
@@ -146,6 +157,7 @@ class _CobrosScreenState extends State<CobrosScreen> {
                         ),
                       ],
                     ),
+
                     const SizedBox(height: 8),
                     Text('Fecha seleccionada: ${DateFormat('yyyy-MM-dd').format(selectedDate)}'),
                   ],
@@ -171,30 +183,83 @@ class _CobrosScreenState extends State<CobrosScreen> {
                         return;
                       }
 
-                      final creditRef = FirebaseFirestore.instance.collection('credits').doc(docId);
-                      final creditSnapshot = await creditRef.get();
-                      final existingData = creditSnapshot.data() ?? {};
+                      final officeId = await _getOfficeId();
+                      if (officeId == null) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Error: No se pudo obtener officeId')),
+                        );
+                        return;
+                      } // Usa widget.officeId aquí
 
-                      final pays = existingData.keys.where((key) => key.startsWith('pay')).toList();
+                      final pays = data.keys.where((key) => key.startsWith('pay')).toList();
                       final nextPayNumber = pays.length + 1;
-                      final payField = 'pay$nextPayNumber';
+                      final paymentId = '${creditDoc.id}_pay$nextPayNumber'; // Mejor ID único
 
-                      await creditRef.update({
-                        payField: {
+                      final batch = FirebaseFirestore.instance.batch();
+                      final creditRef = FirebaseFirestore.instance
+                          .collection('credits')
+                          .doc(creditDoc.id);
+
+                      // 1. Actualizar crédito (dentro del batch)
+                      batch.update(creditRef, {
+                        'pay$nextPayNumber': {
                           'amount': valor,
                           'date': Timestamp.fromDate(selectedDate),
                           'isActive': true,
+                          'paymentId': paymentId,
                         },
                         'lastPaymentDate': Timestamp.fromDate(selectedDate),
                         'nextPaymentIndex': FieldValue.increment(1),
-                        'daysOverdue': 0, // Resetear días en mora
-                        'accumulatedInterest': 0.0, // Resetear interés acumulado
+                        'daysOverdue': 0,
+                        'accumulatedInterest': 0.0,
                       });
 
-                      Navigator.of(context).pop();
-                      ScaffoldMessenger.of(
-                        context,
-                      ).showSnackBar(const SnackBar(content: Text('Pago registrado exitosamente')));
+                      // 2. Actualizar dailyCollections
+                      final dateKey = DateFormat('yyyy-MM-dd').format(selectedDate);
+                      final dailyCollectionRef = FirebaseFirestore.instance
+                          .collection('offices')
+                          .doc(officeId)
+                          .collection('dailyCollections')
+                          .doc(dateKey);
+
+                      batch.set(dailyCollectionRef, {
+                        'total': FieldValue.increment(valor),
+                        'payments': FieldValue.arrayUnion([paymentId]),
+                        'timestamp': Timestamp.fromDate(selectedDate),
+                      }, SetOptions(merge: true));
+
+                      // 3. Actualizar balance total
+                      final officeRef = FirebaseFirestore.instance
+                          .collection('offices')
+                          .doc(officeId);
+                      batch.update(officeRef, {'totalBalance': FieldValue.increment(valor)});
+
+                      // 4. Crear documento en offices/{officeId}/payments/{paymentId}
+                      final paymentRef = FirebaseFirestore.instance
+                          .collection('offices')
+                          .doc(officeId)
+                          .collection('payments')
+                          .doc(paymentId);
+
+                      batch.set(paymentRef, {
+                        'amount': valor,
+                        'date': Timestamp.fromDate(selectedDate),
+                        'creditId': creditDoc.id,
+                        'isActive': true,
+                        'timestamp': Timestamp.now(),
+                      });
+
+                      try {
+                        await batch.commit(); // Ejecutar TODAS las operaciones juntas
+                        Navigator.of(context).pop();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Pago registrado exitosamente')),
+                        );
+                      } catch (e) {
+                        ScaffoldMessenger.of(
+                          context,
+                        ).showSnackBar(SnackBar(content: Text('Error: $e')));
+                      }
                     },
                     child: const Text('Guardar'),
                   ),

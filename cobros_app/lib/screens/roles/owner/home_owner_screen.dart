@@ -115,37 +115,50 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
       );
 
       // 4. Calcular balances
-      double totalBalance = 0;
-      double activeCredits = 0;
-      double collectedThisMonth = 0;
+      try {
+        // ✅ Total balance (ya tienes officeDoc arriba)
+        final totalBalance = (_officeData?['totalBalance'] ?? 0).toDouble();
 
-      // Calcular total recaudado este mes
-      for (var liquidation in _recentLiquidations) {
-        collectedThisMonth += (liquidation['netTotal'] ?? 0).toDouble();
+        // ✅ Créditos activos (igual que antes)
+        double activeCredits = 0;
+        final creditsQuery =
+            await _firestore
+                .collection('credits')
+                .where('officeId', isEqualTo: officeId)
+                .where('isActive', isEqualTo: true)
+                .get();
+
+        for (var credit in creditsQuery.docs) {
+          final data = credit.data();
+          activeCredits += (data['credit'] ?? 0).toDouble();
+        }
+
+        // ✅ Recaudo mensual optimizado usando dailyCollections
+        final now = DateTime.now();
+        final monthKeyPrefix = '${now.year}-${now.month.toString().padLeft(2, '0')}';
+        final officeRef = _firestore.collection('offices').doc(officeId);
+
+        final monthlyQuery =
+            await officeRef
+                .collection('dailyCollections')
+                .where(FieldPath.documentId, isGreaterThanOrEqualTo: monthKeyPrefix)
+                .get();
+
+        double collectedThisMonth = monthlyQuery.docs.fold(
+          0,
+          (sum, doc) => sum + (doc.data()['total'] ?? 0).toDouble(),
+        );
+
+        setState(() {
+          _totalBalance = totalBalance;
+          _activeCredits = activeCredits;
+          _collectedThisMonth = collectedThisMonth;
+          _isLoading = false;
+        });
+      } catch (e) {
+        print('Error calculating balances: $e');
+        setState(() => _isLoading = false);
       }
-
-      // Calcular créditos activos (requeriría una consulta adicional)
-      final creditsQuery =
-          await _firestore
-              .collection('credits')
-              .where('officeId', isEqualTo: officeId)
-              .where('isActive', isEqualTo: true)
-              .get();
-
-      for (var credit in creditsQuery.docs) {
-        final data = credit.data();
-        activeCredits += (data['credit'] ?? 0).toDouble();
-      }
-
-      // Balance total (asumiendo que está almacenado en officeData)
-      totalBalance = (_officeData?['totalBalance'] ?? 0).toDouble();
-
-      setState(() {
-        _totalBalance = totalBalance;
-        _activeCredits = activeCredits;
-        _collectedThisMonth = collectedThisMonth;
-        _isLoading = false;
-      });
     } catch (e) {
       print('Error loading dashboard data: $e');
       setState(() => _isLoading = false);
@@ -153,50 +166,20 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
   }
 
   Future<void> _calculateDailyCollection() async {
-    final user = _auth.currentUser;
-    if (user == null) return;
+    if (_officeData == null) return;
 
-    try {
-      // Obtener officeId del usuario
-      final userDoc = await _firestore.collection('users').doc(user.uid).get();
-      final officeId = userDoc.data()?['officeId'];
-      if (officeId == null) return;
+    final todayKey = DateFormat('yyyy-MM-dd').format(DateTime.now());
+    final doc =
+        await FirebaseFirestore.instance
+            .collection('offices')
+            .doc(_officeData!['officeId'])
+            .collection('dailyCollections')
+            .doc(todayKey)
+            .get();
 
-      // Obtener la fecha actual (sin hora)
-      final now = DateTime.now();
-      final today = DateTime(now.year, now.month, now.day);
-
-      // Consultar todos los créditos de la oficina
-      final creditsQuery =
-          await _firestore.collection('credits').where('officeId', isEqualTo: officeId).get();
-
-      double dailyTotal = 0;
-
-      // Recorrer cada crédito
-      for (var creditDoc in creditsQuery.docs) {
-        final creditData = creditDoc.data(); // Eliminado el cast
-
-        // Buscar todos los campos que comienzan con 'pay'
-        creditData.forEach((key, value) {
-          if (key.startsWith('pay') && value is Map<String, dynamic>) {
-            final payment = value;
-            final paymentDate = (payment['date'] as Timestamp?)?.toDate();
-
-            if (paymentDate != null) {
-              final paymentDay = DateTime(paymentDate.year, paymentDate.month, paymentDate.day);
-
-              if (paymentDay.isAtSameMomentAs(today)) {
-                dailyTotal += (payment['amount'] ?? 0).toDouble();
-              }
-            }
-          }
-        });
-      }
-
-      setState(() => _dailyCollection = dailyTotal);
-    } catch (e) {
-      print('Error calculando recaudo diario: $e');
-    }
+    setState(() {
+      _dailyCollection = (doc.data()?['total'] ?? 0).toDouble();
+    });
   }
 
   Widget _buildSummaryCard(String title, String value, IconData icon, Color color) {

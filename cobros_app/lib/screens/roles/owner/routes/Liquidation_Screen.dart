@@ -114,6 +114,7 @@ class _CollectorLiquidationScreenState extends State<CollectorLiquidationScreen>
 
   Future<void> _fetchPayments() async {
     setState(() => isLoading = true);
+
     try {
       final creditsSnapshot =
           await FirebaseFirestore.instance
@@ -194,56 +195,23 @@ class _CollectorLiquidationScreenState extends State<CollectorLiquidationScreen>
       final newBase = double.tryParse(_baseController.text) ?? _originalBase;
       final liquidationDate = selectedDate ?? DateTime.now();
 
-      // Obtener datos actuales del cobrador
+      // 1. Preparar datos de actualización
       final collectorDoc =
           await FirebaseFirestore.instance.collection('users').doc(widget.collectorId).get();
 
       final lastLiquidation = collectorDoc.data()?['lastLiquidationDate'] as Timestamp?;
       final currentMonthlyCollection = (collectorDoc.data()?['monthlyCollection'] ?? 0).toDouble();
 
-      // Determinar si es un nuevo mes
       final isNewMonth =
           lastLiquidation == null ||
           lastLiquidation.toDate().month != liquidationDate.month ||
           lastLiquidation.toDate().year != liquidationDate.year;
 
-      // Actualizar documento del cobrador
-      final collectorUpdate = {
-        'base': newBase,
-        'lastLiquidationDate': liquidationDate,
-        'monthlyCollection': isNewMonth ? netTotal : currentMonthlyCollection + netTotal,
-      };
-
-      // Actualizar documento de la oficina
-      final officeUpdate = {
-        'totalBalance': FieldValue.increment(netTotal), // Acumula el neto al balance total
-        'updatedAt': FieldValue.serverTimestamp(),
-      };
-
-      // Ejecutar ambas actualizaciones en un batch para atomicidad
-      final batch = FirebaseFirestore.instance.batch();
-
-      // 1. Actualizar cobrador
-      final collectorRef = FirebaseFirestore.instance.collection('users').doc(widget.collectorId);
-      batch.update(collectorRef, collectorUpdate);
-
-      // 2. Actualizar oficina
-      final officeRef = FirebaseFirestore.instance.collection('offices').doc(officeId);
-      batch.update(officeRef, officeUpdate);
-
-      // 3. Marcar pagos como liquidados
-      for (var payment in paymentsOfDay) {
-        batch.update(payment['creditRef'], {'${payment['payKey']}.isActive': false});
-      }
-
-      await batch.commit();
-
-      // Crear documento de liquidación
+      // 2. Crear objeto de liquidación
       final liquidationData = {
         'collectorId': widget.collectorId,
         'collectorName': widget.collectorName,
-        'officeId': officeId,
-        'date': liquidationDate,
+        'date': Timestamp.fromDate(liquidationDate),
         'totalCollected': totalCollected,
         'collectorBase': _originalBase,
         'newBase': newBase,
@@ -260,23 +228,47 @@ class _CollectorLiquidationScreenState extends State<CollectorLiquidationScreen>
                     'clientId': p['clientId'],
                     'clientName': p['clientName'],
                     'amount': p['amount'],
-                    'date': p['date'],
+                    'date': Timestamp.fromDate(p['date']),
                   },
                 )
                 .toList(),
         'createdAt': FieldValue.serverTimestamp(),
       };
 
-      await FirebaseFirestore.instance
-          .collection('liquidations')
-          .doc(Uuid().v4())
-          .set(liquidationData);
+      // 3. Ejecutar operaciones atómicas
+      final batch = FirebaseFirestore.instance.batch();
 
+      // Actualizar cobrador
+      final collectorRef = FirebaseFirestore.instance.collection('users').doc(widget.collectorId);
+      batch.update(collectorRef, {
+        'base': newBase,
+        'lastLiquidationDate': Timestamp.fromDate(liquidationDate),
+        'monthlyCollection': isNewMonth ? netTotal : currentMonthlyCollection + netTotal,
+      });
+
+      // Actualizar oficina (balance general)
+      final officeRef = FirebaseFirestore.instance.collection('offices').doc(officeId);
+      batch.update(officeRef, {
+        'totalBalance': FieldValue.increment(netTotal),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      // Crear liquidación en subcolección
+      final liquidationRef = officeRef.collection('liquidations').doc(Uuid().v4());
+      batch.set(liquidationRef, liquidationData);
+
+      // Marcar pagos como liquidados
+      for (var payment in paymentsOfDay) {
+        batch.update(payment['creditRef'], {'${payment['payKey']}.isActive': false});
+      }
+
+      await batch.commit();
+
+      // 4. Mostrar confirmación y resetear formulario
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Liquidación realizada. Balance de oficina actualizado.'),
+        const SnackBar(
+          content: Text('Liquidación registrada correctamente'),
           backgroundColor: Colors.green,
-          duration: const Duration(seconds: 3),
         ),
       );
 
@@ -295,11 +287,7 @@ class _CollectorLiquidationScreenState extends State<CollectorLiquidationScreen>
       });
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error: ${e.toString()}'),
-          backgroundColor: Colors.red,
-          duration: const Duration(seconds: 3),
-        ),
+        SnackBar(content: Text('Error: ${e.toString()}'), backgroundColor: Colors.red),
       );
     } finally {
       setState(() => isLoading = false);
