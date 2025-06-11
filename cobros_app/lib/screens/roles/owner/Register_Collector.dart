@@ -76,91 +76,158 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
     final currentUser = _auth.currentUser;
     if (currentUser == null) return;
 
-    final userDoc = await _firestore.collection('users').doc(currentUser.uid).get();
-    final data = userDoc.data();
+    try {
+      final userDoc = await _firestore.collection('users').doc(currentUser.uid).get();
+      final userData = userDoc.data();
 
-    if (data != null && data['role'] == 'owner' && data.containsKey('officeId')) {
-      // Verificar el estado activo en la nueva estructura
-      final activeStatus = data['activeStatus'] as Map<String, dynamic>?;
-      final isActive = activeStatus?['isActive'] ?? false;
+      if (userData == null || userData['role'] != 'owner') {
+        setState(() => isLoading = false);
+        return;
+      }
 
-      setState(() {
-        ownerOfficeId = data['officeId'];
-        isOwnerActive = isActive; // Usar el valor del mapa activeStatus
-      });
-      await loadCollectors();
+      final officesQuery =
+          await _firestore
+              .collection('users')
+              .doc(currentUser.uid)
+              .collection('offices')
+              .limit(1)
+              .get();
+
+      if (officesQuery.docs.isNotEmpty) {
+        final officeDoc = officesQuery.docs.first;
+
+        // Asegurarnos que la oficina tenga createdBy
+        if (officeDoc.data()['createdBy'] == null) {
+          await officeDoc.reference.update({
+            'createdBy': currentUser.uid,
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        }
+
+        setState(() {
+          ownerOfficeId = officeDoc.id;
+          isOwnerActive = (userData['activeStatus'] as Map<String, dynamic>?)?['isActive'] ?? false;
+        });
+
+        await loadCollectors();
+      }
+    } catch (e) {
+      debugPrint('Error loading owner data: $e');
+    } finally {
+      setState(() => isLoading = false);
     }
-
-    setState(() => isLoading = false);
   }
 
   Future<void> loadCollectors() async {
-    final query =
-        await _firestore
-            .collection('users')
-            .where('role', isEqualTo: 'collector')
-            .where('officeId', isEqualTo: ownerOfficeId)
-            .get();
-
-    setState(() {
-      collectors =
-          query.docs.map((doc) {
-            var data = doc.data();
-            data['uid'] = doc.id;
-            return data;
-          }).toList();
-    });
-  }
-
-  Future<void> registerCollector() async {
-    if (!_formKey.currentState!.validate()) return;
-
-    final name = _nameController.text.trim();
-    final email = _emailController.text.trim();
-    final password = _passwordController.text.trim();
+    final currentUser = _auth.currentUser;
+    if (currentUser == null || ownerOfficeId == null || !mounted) return;
 
     try {
-      final ownerCredential = _auth.currentUser!;
+      final querySnapshot =
+          await _firestore
+              .collection('users')
+              .doc(currentUser.uid)
+              .collection('offices')
+              .doc(ownerOfficeId)
+              .collection('collectors')
+              .get();
+
+      if (!mounted) return;
+
+      setState(() {
+        collectors =
+            querySnapshot.docs.map((doc) {
+              final data = doc.data();
+              return {
+                'id': doc.id,
+                'name': data['name'] ?? 'Sin nombre',
+                'email': data['email'] ?? '',
+                'base': data['base'] ?? 0,
+                'activeStatus': data['activeStatus'] ?? {'isActive': false},
+                'createdAt': data['createdAt'],
+                'updatedAt': data['updatedAt'],
+              };
+            }).toList();
+      });
+    } catch (e) {
+      debugPrint('Error cargando cobradores: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Error al cargar cobradores')));
+      }
+    }
+  }
+
+  // 3. Mejora en registerCollector() para consistencia de datos:
+  Future<void> registerCollector() async {
+    if (!_formKey.currentState!.validate() || !mounted) return;
+
+    final currentUser = _auth.currentUser;
+    if (currentUser == null || ownerOfficeId == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Usuario no autenticado o oficina no encontrada')),
+        );
+      }
+      return;
+    }
+
+    try {
       final authResult = await FirebaseAuth.instance.createUserWithEmailAndPassword(
-        email: email,
-        password: password,
+        email: _emailController.text.trim(),
+        password: _passwordController.text.trim(),
       );
       final collectorUID = authResult.user!.uid;
 
+      // Datos mínimos en users collection
       await _firestore.collection('users').doc(collectorUID).set({
-        'displayName': name,
-        'email': email,
+        'displayName': _nameController.text.trim(),
+        'email': _emailController.text.trim(),
         'role': 'collector',
-        'officeId': ownerOfficeId,
         'createdAt': FieldValue.serverTimestamp(),
-        'activeStatus': {
-          // Nueva estructura
-          'isActive': true,
-          'lastUpdate': FieldValue.serverTimestamp(),
-        },
-        'UID': collectorUID,
       });
 
-      await _auth.signInWithEmailAndPassword(
-        email: ownerCredential.email!,
-        password: await _getOwnerPasswordDialog(context),
-      );
+      // Datos completos en offices/collectors
+      await _firestore
+          .collection('users')
+          .doc(currentUser.uid)
+          .collection('offices')
+          .doc(ownerOfficeId)
+          .collection('collectors')
+          .doc(collectorUID)
+          .set({
+            'id': collectorUID,
+            'name': _nameController.text.trim(),
+            'email': _emailController.text.trim(),
+            'base': 0,
+            'assignedClients': [],
+            'officeId': ownerOfficeId,
+            'createdBy': currentUser.uid,
+            'activeStatus': {'isActive': true, 'lastUpdate': FieldValue.serverTimestamp()},
+            'createdAt': FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
 
-      setState(() {
-        showForm = false;
-        _nameController.clear();
-        _baseController.clear();
-        _emailController.clear();
-        _passwordController.clear();
-      });
-
-      await loadCollectors();
-
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Collector registrado correctamente.')));
+      if (mounted) {
+        setState(() {
+          showForm = false;
+          _nameController.clear();
+          _emailController.clear();
+          _passwordController.clear();
+        });
+        await loadCollectors();
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Cobrador creado exitosamente')));
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al registrar: $e')));
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error al crear cobrador: ${e.toString()}')));
+      }
+      debugPrint('Error al crear cobrador: $e');
     }
   }
 
@@ -197,16 +264,26 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
     int newBase,
     bool newStatus,
   ) async {
-    await _firestore.collection('users').doc(collector['uid']).update({
-      'displayName': newName,
-      'base': newBase,
-      'activeStatus': {
-        // Nueva estructura
-        'isActive': newStatus,
-        'lastUpdate': FieldValue.serverTimestamp(),
-      },
-      'updateAt': FieldValue.serverTimestamp(),
-    });
+    final currentUser = _auth.currentUser;
+    if (currentUser == null || ownerOfficeId == null) return;
+
+    await _firestore
+        .collection('users')
+        .doc(currentUser.uid)
+        .collection('offices')
+        .doc(ownerOfficeId)
+        .collection('collectors')
+        .doc(collector['id'])
+        .update({
+          'name': newName,
+          'base': newBase,
+          'activeStatus': {'isActive': newStatus, 'lastUpdate': FieldValue.serverTimestamp()},
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+
+    // Actualizar también el nombre en users/{userId} si es necesario
+    await _firestore.collection('users').doc(collector['id']).update({'displayName': newName});
+
     await loadCollectors();
     ScaffoldMessenger.of(
       context,
@@ -365,113 +442,48 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
                       itemCount: collectors.length,
                       itemBuilder: (context, index) {
                         final collector = collectors[index];
-                        final uid = collector['uid'];
-                        final expanded = expandedCards[uid] ?? false;
-                        final number = collector['base'] ?? 0;
+                        final collectorId = collector['id'];
+                        final expanded = expandedCards[collectorId] ?? false;
                         final formatter = NumberFormat.decimalPattern('es_CO');
+
                         final baseController = TextEditingController(
-                          text: formatter.format(number),
+                          text: formatter.format(collector['base'] ?? 0),
                         );
-                        final nameController = TextEditingController(
-                          text: collector['displayName'],
-                        );
+                        final nameController = TextEditingController(text: collector['name']);
 
                         return Card(
                           margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                          elevation: 2,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(12),
-                            onTap:
-                                () => setState(() {
-                                  expandedCards[uid] = !expanded;
-                                }),
-                            child: Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Column(
-                                children: [
-                                  Row(
-                                    children: [
-                                      CircleAvatar(
-                                        backgroundColor: Theme.of(
-                                          context,
-                                        ).primaryColor.withOpacity(0.2),
-                                        child: Icon(
-                                          Icons.person,
-                                          color: Theme.of(context).primaryColor,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 16),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              collector['displayName'] ?? 'Sin nombre',
-                                              style: const TextStyle(
-                                                fontSize: 16,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 4),
-                                            Text(
-                                              collector['email'] ?? '',
-                                              style: TextStyle(
-                                                fontSize: 14,
-                                                color: Colors.grey[600],
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 12,
-                                          vertical: 6,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color:
-                                              (collector['activeStatus']?['isActive'] ?? false)
-                                                  ? Colors.green.withOpacity(0.1)
-                                                  : Colors.red.withOpacity(0.1),
-                                          borderRadius: BorderRadius.circular(20),
-                                        ),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(
-                                              (collector['activeStatus']?['isActive'] ?? false)
-                                                  ? Icons.check_circle
-                                                  : Icons.cancel,
-                                              size: 16,
-                                              color:
-                                                  (collector['activeStatus']?['isActive'] ?? false)
-                                                      ? Colors.green
-                                                      : Colors.red,
-                                            ),
-                                            const SizedBox(width: 4),
-                                            Text(
-                                              (collector['activeStatus']?['isActive'] ?? false)
-                                                  ? 'Activo'
-                                                  : 'Inactivo',
-                                              style: TextStyle(
-                                                fontSize: 12,
-                                                color:
-                                                    (collector['activeStatus']?['isActive'] ??
-                                                            false)
-                                                        ? Colors.green
-                                                        : Colors.red,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
+                          child: ExpansionTile(
+                            title: ListTile(
+                              leading: CircleAvatar(
+                                backgroundColor: Theme.of(context).primaryColor.withOpacity(0.2),
+                                child: Icon(Icons.person, color: Theme.of(context).primaryColor),
+                              ),
+                              title: Text(collector['name']),
+                              subtitle: Text(collector['email']),
+                              trailing: Chip(
+                                backgroundColor:
+                                    (collector['activeStatus']?['isActive'] ?? false)
+                                        ? Colors.green.withOpacity(0.1)
+                                        : Colors.red.withOpacity(0.1),
+                                label: Text(
+                                  (collector['activeStatus']?['isActive'] ?? false)
+                                      ? 'Activo'
+                                      : 'Inactivo',
+                                  style: TextStyle(
+                                    color:
+                                        (collector['activeStatus']?['isActive'] ?? false)
+                                            ? Colors.green
+                                            : Colors.red,
                                   ),
-                                  if (expanded) ...[
-                                    const SizedBox(height: 16),
-                                    const Divider(),
-                                    const SizedBox(height: 16),
+                                ),
+                              ),
+                            ),
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: Column(
+                                  children: [
                                     _buildEditableField(
                                       context,
                                       'Nombre',
@@ -489,13 +501,6 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
                                     const SizedBox(height: 16),
                                     SwitchListTile(
                                       title: const Text('Estado del cobrador'),
-                                      secondary: Icon(
-                                        Icons.toggle_on,
-                                        color:
-                                            (collector['activeStatus']?['isActive'] ?? false)
-                                                ? Theme.of(context).primaryColor
-                                                : Colors.grey,
-                                      ),
                                       value: collector['activeStatus']?['isActive'] ?? false,
                                       onChanged: (value) {
                                         setState(() {
@@ -512,7 +517,9 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
                                         Expanded(
                                           child: OutlinedButton(
                                             onPressed:
-                                                () => setState(() => expandedCards[uid] = false),
+                                                () => setState(
+                                                  () => expandedCards[collectorId] = false,
+                                                ),
                                             child: const Text('Cancelar'),
                                           ),
                                         ),
@@ -533,9 +540,9 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
                                       ],
                                     ),
                                   ],
-                                ],
+                                ),
                               ),
-                            ),
+                            ],
                           ),
                         );
                       },

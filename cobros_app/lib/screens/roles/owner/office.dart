@@ -39,29 +39,15 @@ class _OfficeManagementScreenState extends State<OfficeManagementScreen> {
     final user = _auth.currentUser;
     if (user == null) return;
 
-    final userDoc = await _firestore.collection('users').doc(user.uid).get();
-    final userData = userDoc.data();
-    String? officeId = userData?['officeId'];
+    final officeQuery =
+        await _firestore.collection('users').doc(user.uid).collection('offices').limit(1).get();
 
-    if (officeId == null) {
-      final officeQuery =
-          await _firestore
-              .collection('offices')
-              .where('createdBy', isEqualTo: user.uid)
-              .limit(1)
-              .get();
-      if (officeQuery.docs.isNotEmpty) {
-        final doc = officeQuery.docs.first;
-        officeId = doc.id;
-        await _firestore.collection('users').doc(user.uid).update({'officeId': officeId});
-      }
-    }
+    if (officeQuery.docs.isNotEmpty) {
+      final doc = officeQuery.docs.first;
+      final data = doc.data();
 
-    if (officeId != null) {
-      final officeDoc = await _firestore.collection('offices').doc(officeId).get();
-      final data = officeDoc.data();
-      if (data != null) {
-        _officeId = officeId;
+      setState(() {
+        _officeId = doc.id;
         _nameController.text = data['name'] ?? '';
         _addressController.text = data['address'] ?? '';
         _cellphoneController.text = data['cellphone'] ?? '';
@@ -70,7 +56,7 @@ class _OfficeManagementScreenState extends State<OfficeManagementScreen> {
         _createdAt = data['createdAt'];
         _updatedAt = data['updatedAt'];
         _hasOffice = true;
-      }
+      });
     }
 
     setState(() {
@@ -99,32 +85,38 @@ class _OfficeManagementScreenState extends State<OfficeManagementScreen> {
       return;
     }
 
-    final officeId = _generateOfficeId();
     final now = FieldValue.serverTimestamp();
 
-    await _firestore.collection('offices').doc(officeId).set({
-      'name': name,
-      'address': address,
-      'cellphone': cellphone,
-      'address2': _address2Controller.text.trim(),
-      'cellphone2': _cellphone2Controller.text.trim(),
-      'createdBy': user.uid,
-      'createdAt': now,
-    });
+    try {
+      final officeRef = await _firestore
+          .collection('users')
+          .doc(user.uid)
+          .collection('offices')
+          .add({
+            'name': name,
+            'address': address,
+            'cellphone': cellphone,
+            'address2': _address2Controller.text.trim(),
+            'cellphone2': _cellphone2Controller.text.trim(),
+            'createdAt': now,
+            'updatedAt': now,
+          });
 
-    await _firestore.collection('users').doc(user.uid).update({'officeId': officeId});
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Oficina creada correctamente')));
 
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Oficina creada correctamente')));
+      setState(() {
+        _officeId = officeRef.id;
+        _hasOffice = true;
+      });
 
-    setState(() {
-      _officeId = officeId;
-      _hasOffice = true;
-      _isLoading = true;
-    });
-
-    await _loadOffice();
+      await _loadOffice();
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error al crear oficina: ${e.toString()}')));
+    }
   }
 
   Widget _buildFormField(String label, TextEditingController controller, IconData icon) {

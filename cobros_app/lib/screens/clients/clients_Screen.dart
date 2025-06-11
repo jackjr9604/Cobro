@@ -19,56 +19,144 @@ class _ClientsScreenState extends State<ClientsScreen> with OfficeVerificationMi
   bool hasOffice = false;
   bool isActive = false;
   String? officeId;
+  String? userId;
+  String userRole = '';
   Map<String, dynamic>? userData;
 
   @override
   void initState() {
     super.initState();
-    _loadOfficeData();
+    _loadUserAndOfficeData();
   }
 
-  Future<void> _loadOfficeData() async {
-    final verification = await verifyOfficeAndStatus();
+  Future<void> _loadUserAndOfficeData() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      setState(() => isLoading = false);
+      return;
+    }
+
     setState(() {
-      hasOffice = verification['hasOffice'];
-      isActive = verification['isActive'];
-      officeId = verification['officeId'];
-      userData = verification['userData'];
-      isLoading = false;
+      userId = user.uid;
     });
+
+    try {
+      // 1. Cargar datos del usuario
+      final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+
+      if (!userDoc.exists) {
+        setState(() {
+          isLoading = false;
+          hasOffice = false;
+          isActive = false;
+        });
+        return;
+      }
+
+      userData = userDoc.data();
+      userRole = userData?['role'] ?? '';
+
+      // 2. Verificar estado activo
+      final activeStatus = userData?['activeStatus'] as Map<String, dynamic>?;
+      final userIsActive = activeStatus?['isActive'] ?? false;
+
+      // 3. Buscar oficina solo si es owner
+      if (userRole == 'owner') {
+        final officeQuery =
+            await FirebaseFirestore.instance
+                .collection('users')
+                .doc(user.uid)
+                .collection('offices')
+                .limit(1)
+                .get();
+
+        setState(() {
+          hasOffice = officeQuery.docs.isNotEmpty;
+          officeId = hasOffice ? officeQuery.docs.first.id : null;
+          isActive = userIsActive;
+        });
+      } else {
+        // Para collectors, verificamos si tienen officeId asignado
+        final collectorOfficeId = userData?['officeId'];
+        setState(() {
+          hasOffice = collectorOfficeId != null;
+          officeId = collectorOfficeId;
+          isActive = userIsActive;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading user data: $e');
+      setState(() {
+        hasOffice = false;
+        isActive = false;
+      });
+    } finally {
+      setState(() => isLoading = false);
+    }
+  }
+
+  Widget _buildInactiveAccountScreen() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.error_outline, size: 64, color: Colors.orange),
+            const SizedBox(height: 20),
+            Text(
+              'Oficina no configurada',
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.grey[800]),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'No tienes una oficina configurada o no está activa.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: () {
+                // Navegar a la pantalla de configuración de oficina
+              },
+              child: const Text('Configurar Oficina'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<Query<Map<String, dynamic>>> getClientsQuery(User user) async {
-    final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-    final role = userDoc.data()?['role'];
-    final officeId = userDoc.data()?['officeId'];
-    final activeStatus = userDoc.data()?['activeStatus'] as Map<String, dynamic>?;
-    final isActive = activeStatus?['isActive'] ?? false;
-
-    if (role == 'owner' && !isActive) {
-      throw Exception('owner_inactive');
+    if (officeId == null || userId == null) {
+      throw Exception('No office assigned');
     }
 
-    if (officeId == null) {
-      throw Exception('No tienes asignado un officeId');
+    // Consulta para owners - todos los clientes de la oficina
+    if (userData?['role'] == 'owner') {
+      return FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .collection('offices')
+          .doc(officeId)
+          .collection('clients');
     }
-
-    final clientsRef = FirebaseFirestore.instance.collection('clients');
-
-    if (role == 'owner') {
-      return clientsRef.where('officeId', isEqualTo: officeId);
-    } else {
-      return clientsRef.where('createdBy', isEqualTo: user.uid);
+    // Consulta para collectors - solo sus clientes asignados
+    else {
+      return FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .collection('offices')
+          .doc(officeId)
+          .collection('clients')
+          .where('assignedCollectorId', isEqualTo: user.uid);
     }
   }
 
   Future<void> _deleteClient(BuildContext context, String clientId) async {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
+    if (officeId == null || userId == null) return;
 
-    final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-    final role = userDoc.data()?['role'];
-
+    final role = userData?['role'];
     if (role != 'owner') {
       ScaffoldMessenger.of(
         context,
@@ -81,19 +169,15 @@ class _ClientsScreenState extends State<ClientsScreen> with OfficeVerificationMi
       builder: (BuildContext context) {
         return AlertDialog(
           title: const Text('Confirmar eliminación'),
-          content: const Text(
-            '¿Estás seguro de que deseas eliminar este crédito? Esta acción no se puede deshacer.',
-          ),
+          content: const Text('¿Estás seguro de que deseas eliminar este cliente?'),
           actions: <Widget>[
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
               child: const Text('Cancelar'),
-              style: TextButton.styleFrom(foregroundColor: Colors.grey),
             ),
             TextButton(
               onPressed: () => Navigator.of(context).pop(true),
               child: const Text('Eliminar', style: TextStyle(color: Colors.red)),
-              style: TextButton.styleFrom(backgroundColor: Colors.red[50]),
             ),
           ],
         );
@@ -101,10 +185,24 @@ class _ClientsScreenState extends State<ClientsScreen> with OfficeVerificationMi
     );
 
     if (confirmation == true) {
-      await FirebaseFirestore.instance.collection('clients').doc(clientId).delete();
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Cliente eliminado con éxito')));
+      try {
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(userId)
+            .collection('offices')
+            .doc(officeId)
+            .collection('clients')
+            .doc(clientId)
+            .delete();
+
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Cliente eliminado con éxito')));
+      } catch (e) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error al eliminar cliente: $e')));
+      }
     }
   }
 
@@ -177,31 +275,6 @@ class _ClientsScreenState extends State<ClientsScreen> with OfficeVerificationMi
     );
   }
 
-  Widget _buildInactiveAccountScreen() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(20.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.error_outline, size: 64, color: Colors.orange),
-            const SizedBox(height: 20),
-            Text(
-              'Cuenta no activa',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.grey[800]),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Tu cuenta de propietario no está activa actualmente. Por favor, contacta al administrador para más información.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 16, color: Colors.grey[600]),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     if (isLoading) {
@@ -216,7 +289,6 @@ class _ClientsScreenState extends State<ClientsScreen> with OfficeVerificationMi
     }
 
     final user = FirebaseAuth.instance.currentUser;
-
     if (user == null) return const Center(child: Text('Usuario no autenticado'));
 
     return Scaffold(
@@ -286,6 +358,7 @@ class _ClientsScreenState extends State<ClientsScreen> with OfficeVerificationMi
                   ),
                 );
               }
+
               return ListView.builder(
                 padding: EdgeInsets.only(bottom: 80),
                 physics: const AlwaysScrollableScrollPhysics(),
@@ -448,6 +521,7 @@ class _ClientsScreenState extends State<ClientsScreen> with OfficeVerificationMi
                                                   (_) => EditClientScreen(
                                                     clientData: data,
                                                     clientId: client.id,
+                                                    officeId: officeId!,
                                                   ),
                                             ),
                                           );
@@ -476,30 +550,19 @@ class _ClientsScreenState extends State<ClientsScreen> with OfficeVerificationMi
           );
         },
       ),
-      floatingActionButton: FutureBuilder(
-        future: FirebaseFirestore.instance.collection('users').doc(user.uid).get(),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) return const SizedBox.shrink();
 
-          final role = snapshot.data!.data()?['role'];
-          final activeStatus = snapshot.data!.data()?['activeStatus'] as Map<String, dynamic>?;
-          final isActive = activeStatus?['isActive'] ?? false;
-
-          // Solo mostrar FAB si es collector o owner activo
-          if (role == 'collector' || (role == 'owner' && isActive)) {
-            return FloatingActionButton(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => const ClientFormScreen()),
-                );
-              },
-              child: const Icon(Icons.add),
-            );
-          }
-          return const SizedBox.shrink();
-        },
-      ),
+      floatingActionButton:
+          (userData?['role'] == 'collector' || (userData?['role'] == 'owner' && isActive))
+              ? FloatingActionButton(
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => ClientFormScreen(officeId: officeId!)),
+                  );
+                },
+                child: const Icon(Icons.add),
+              )
+              : null,
     );
   }
 }

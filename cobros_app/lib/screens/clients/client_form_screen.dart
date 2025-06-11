@@ -6,8 +6,9 @@ import 'dart:math';
 class ClientFormScreen extends StatefulWidget {
   final String? clientId;
   final Map<String, dynamic>? initialData;
+  final String officeId;
 
-  const ClientFormScreen({super.key, this.clientId, this.initialData});
+  const ClientFormScreen({super.key, this.clientId, this.initialData, required this.officeId});
 
   @override
   _ClientFormScreenState createState() => _ClientFormScreenState();
@@ -16,7 +17,7 @@ class ClientFormScreen extends StatefulWidget {
 class _ClientFormScreenState extends State<ClientFormScreen> {
   final _formKey = GlobalKey<FormState>();
   late String _clientName, _cc, _cellphone, _address, _refAlias, _phone, _address2, _city;
-  late String _officeId, _createdBy;
+  late String _createdBy;
   late bool isEditing;
 
   @override
@@ -24,48 +25,43 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
     super.initState();
     final user = FirebaseAuth.instance.currentUser!;
     _createdBy = user.uid;
-    _officeId = ''; // Inicializamos vacío el officeId
     isEditing = widget.clientId != null;
+
     if (isEditing) {
       _loadClientData();
-    } else {
-      // Obtenemos el officeId del documento del usuario
-      _getOfficeId(user);
     }
-  }
-
-  Future<void> _getOfficeId(User user) async {
-    final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-    setState(() {
-      _officeId = userDoc.data()?['officeId'] ?? ''; // Asignamos el officeId del usuario
-    });
   }
 
   Future<void> _loadClientData() async {
     final clientDoc =
-        await FirebaseFirestore.instance.collection('clients').doc(widget.clientId).get();
-    final data = clientDoc.data()!;
-    _clientName = data['clientName'];
-    _cc = data['cc'];
-    _cellphone = data['cellphone'];
-    _address = data['address'];
-    _refAlias = data['ref/Alias'] ?? '';
-    _phone = data['phone'] ?? '';
-    _address2 = data['address2'] ?? '';
-    _city = data['city'] ?? '';
-    _officeId = data['officeId']; // Si es edición, tomamos el officeId del cliente
-    setState(() {});
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(_createdBy)
+            .collection('offices')
+            .doc(widget.officeId)
+            .collection('clients')
+            .doc(widget.clientId)
+            .get();
+
+    if (clientDoc.exists) {
+      final data = clientDoc.data()!;
+      setState(() {
+        _clientName = data['clientName'];
+        _cc = data['cc'];
+        _cellphone = data['cellphone'];
+        _address = data['address'];
+        _refAlias = data['refAlias'] ?? '';
+        _phone = data['phone'] ?? '';
+        _address2 = data['address2'] ?? '';
+        _city = data['city'] ?? '';
+      });
+    }
   }
 
-  String _generateClientId(String officeId) {
-    // 4 primeros dígitos del officeId + 6 alfanuméricos aleatorios
-    String randomString = '';
+  String _generateClientId() {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
     final random = Random();
-    for (int i = 0; i < 6; i++) {
-      randomString += chars[random.nextInt(chars.length)];
-    }
-    return '${officeId.substring(0, 4)}$randomString';
+    return List.generate(12, (index) => chars[random.nextInt(chars.length)]).join();
   }
 
   Future<void> _saveClient() async {
@@ -73,59 +69,102 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
       _formKey.currentState?.save();
 
       try {
-        // Mostrar diálogo de carga
         showDialog(
           context: context,
           barrierDismissible: false,
-          builder: (context) => Center(child: CircularProgressIndicator()),
+          builder: (context) => const Center(child: CircularProgressIndicator()),
         );
 
-        final clientId = widget.clientId ?? _generateClientId(_officeId);
+        final clientId = widget.clientId ?? _generateClientId();
         final now = FieldValue.serverTimestamp();
 
-        await FirebaseFirestore.instance.collection('clients').doc(clientId).set({
+        final clientRef = FirebaseFirestore.instance
+            .collection('users')
+            .doc(_createdBy)
+            .collection('offices')
+            .doc(widget.officeId)
+            .collection('clients')
+            .doc(clientId);
+
+        await clientRef.set({
           'clientName': _clientName,
           'cc': _cc,
           'cellphone': _cellphone,
           'address': _address,
-          'ref/Alias': _refAlias,
+          'refAlias': _refAlias,
           'phone': _phone,
           'address2': _address2,
           'city': _city,
-          'createdAt':
-              isEditing
-                  ? (widget.initialData != null ? widget.initialData!['createdAt'] : now)
-                  : now,
+          'createdAt': isEditing ? (widget.initialData?['createdAt'] ?? now) : now,
           'updatedAt': now,
-          'officeId': _officeId,
           'createdBy': _createdBy,
+          'officeId': widget.officeId,
         }, SetOptions(merge: isEditing));
 
-        // Cerrar diálogo de carga
-        if (mounted) Navigator.pop(context);
-
-        // Mostrar mensaje de éxito
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(isEditing ? 'Cliente actualizado' : 'Cliente creado'),
-            backgroundColor: Colors.green,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          ),
-        );
-
-        if (mounted) Navigator.pop(context);
+        if (mounted) {
+          Navigator.pop(context); // Cerrar diálogo de carga
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(isEditing ? 'Cliente actualizado' : 'Cliente creado'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          Navigator.pop(context); // Volver atrás
+        }
       } catch (e) {
-        // Cerrar diálogo de carga si hay error
-        if (mounted) Navigator.pop(context);
+        if (mounted) {
+          Navigator.pop(context); // Cerrar diálogo de carga
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error: ${e.toString()}'), backgroundColor: Colors.red),
+          );
+        }
+      }
+    }
+  }
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: ${e.toString()}'),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
+  Future<void> _confirmDelete() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Confirmar eliminación'),
+            content: const Text('¿Estás seguro de eliminar este cliente?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancelar'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Eliminar', style: TextStyle(color: Colors.red)),
+              ),
+            ],
           ),
-        );
+    );
+
+    if (confirmed == true && mounted) {
+      try {
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(_createdBy)
+            .collection('offices')
+            .doc(widget.officeId)
+            .collection('clients')
+            .doc(widget.clientId)
+            .delete();
+
+        if (mounted) {
+          Navigator.pop(context);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Cliente eliminado'), backgroundColor: Colors.green),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error al eliminar: $e'), backgroundColor: Colors.red),
+          );
+        }
       }
     }
   }
@@ -332,28 +371,5 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
         },
       ),
     );
-  }
-
-  Future<void> _confirmDelete() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder:
-          (context) => AlertDialog(
-            title: Text('Confirmar eliminación'),
-            content: Text('¿Estás seguro de eliminar este cliente?'),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(context, false), child: Text('Cancelar')),
-              TextButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: Text('Eliminar', style: TextStyle(color: Colors.red)),
-              ),
-            ],
-          ),
-    );
-
-    if (confirmed == true) {
-      await FirebaseFirestore.instance.collection('clients').doc(widget.clientId).delete();
-      Navigator.pop(context);
-    }
   }
 }

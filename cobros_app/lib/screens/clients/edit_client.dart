@@ -5,8 +5,14 @@ import 'package:flutter/material.dart';
 class EditClientScreen extends StatefulWidget {
   final Map<String, dynamic> clientData;
   final String clientId;
+  final String officeId; // Nuevo parámetro requerido
 
-  const EditClientScreen({required this.clientData, required this.clientId, super.key});
+  const EditClientScreen({
+    required this.clientData,
+    required this.clientId,
+    required this.officeId, // Hacemos officeId obligatorio
+    super.key,
+  });
 
   @override
   State<EditClientScreen> createState() => _EditClientScreenState();
@@ -25,66 +31,69 @@ class _EditClientScreenState extends State<EditClientScreen> {
 
   bool isOwner = false;
   String? selectedCollectorUid;
-  List<Map<String, dynamic>> collectors = []; // Cambié el tipo de la lista
-
+  List<Map<String, dynamic>> collectors = [];
   final currentUser = FirebaseAuth.instance.currentUser;
 
   @override
   void initState() {
     super.initState();
+    _initializeControllers();
+    _fetchUserRoleAndCollectors();
+  }
+
+  void _initializeControllers() {
     _nameController = TextEditingController(text: widget.clientData['clientName']);
     _ccController = TextEditingController(text: widget.clientData['cc']);
     _addressController = TextEditingController(text: widget.clientData['address']);
     _cellphoneController = TextEditingController(text: widget.clientData['cellphone']);
-    _refController = TextEditingController(text: widget.clientData['ref/Alias'] ?? '');
+    _refController = TextEditingController(text: widget.clientData['refAlias'] ?? '');
     _phoneController = TextEditingController(text: widget.clientData['phone'] ?? '');
     _address2Controller = TextEditingController(text: widget.clientData['address2'] ?? '');
     _cityController = TextEditingController(text: widget.clientData['city'] ?? '');
-
-    fetchUserRoleAndCollectors();
   }
 
-  Future<void> fetchUserRoleAndCollectors() async {
+  Future<void> _fetchUserRoleAndCollectors() async {
+    if (currentUser == null) return;
+
     final userDoc =
         await FirebaseFirestore.instance.collection('users').doc(currentUser!.uid).get();
-    final userData = userDoc.data();
-    if (userData == null) return;
+
+    if (!userDoc.exists) return;
 
     setState(() {
-      isOwner = userData['role'] == 'owner';
+      isOwner = userDoc.data()?['role'] == 'owner';
     });
 
     if (isOwner) {
-      final officeId = userData['officeId'];
-      final query =
-          await FirebaseFirestore.instance
-              .collection('users')
-              .where('role', isEqualTo: 'collector')
-              .where('officeId', isEqualTo: officeId)
-              .get();
-
-      setState(() {
-        collectors =
-            query.docs
-                .map((doc) => {'uid': doc.id, 'name': doc['displayName'] ?? 'Sin nombre'})
-                .toList();
-
-        selectedCollectorUid = widget.clientData['createdBy'];
-
-        // Si el collector no está en la lista, asignar un valor predeterminado
-        if (selectedCollectorUid != null &&
-            !collectors.any((collector) => collector['uid'] == selectedCollectorUid)) {
-          selectedCollectorUid = null; // o puedes asignar un valor predeterminado aquí
-        }
-      });
+      await _loadCollectors();
+      selectedCollectorUid = widget.clientData['createdBy'];
     }
+  }
+
+  Future<void> _loadCollectors() async {
+    final query =
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(currentUser!.uid)
+            .collection('offices')
+            .doc(widget.officeId)
+            .collection('collectors')
+            .get();
+
+    setState(() {
+      collectors = [
+        {'uid': 'unassigned', 'name': 'Sin asignar'},
+        ...query.docs.map((doc) {
+          return {'uid': doc.id, 'name': doc['name'] ?? 'Sin nombre'};
+        }).toList(),
+      ];
+    });
   }
 
   Future<void> updateClient() async {
     if (!_formKey.currentState!.validate()) return;
 
     try {
-      // Mostrar diálogo de carga
       showDialog(
         context: context,
         barrierDismissible: false,
@@ -92,66 +101,77 @@ class _EditClientScreenState extends State<EditClientScreen> {
       );
 
       final updateData = {
+        'clientName': _nameController.text,
+        'cc': _ccController.text,
         'address': _addressController.text,
         'cellphone': _cellphoneController.text,
         'refAlias': _refController.text,
         'phone': _phoneController.text,
         'address2': _address2Controller.text,
         'city': _cityController.text,
-        'updatedAt': Timestamp.now(),
+        'updatedAt': FieldValue.serverTimestamp(),
       };
 
-      final clientRef = FirebaseFirestore.instance.collection('clients').doc(widget.clientId);
+      // Referencia al cliente en la nueva estructura
+      final clientRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(currentUser!.uid)
+          .collection('offices')
+          .doc(widget.officeId)
+          .collection('clients')
+          .doc(widget.clientId);
 
+      // Si es owner y cambió el collector, actualizamos
       if (isOwner) {
-        updateData['clientName'] = _nameController.text;
-        updateData['cc'] = _ccController.text;
-        updateData['createdBy'] = selectedCollectorUid ?? '';
+        if (selectedCollectorUid == 'unassigned') {
+          updateData['createdBy'] = FieldValue.delete();
+        } else if (selectedCollectorUid != widget.clientData['createdBy']) {
+          updateData['createdBy'] = selectedCollectorUid!;
+          await _updateCreditsCollector(selectedCollectorUid!);
+        }
       }
 
       await clientRef.update(updateData);
 
-      // Si es owner y cambió el collector, actualizar créditos
-      if (isOwner && selectedCollectorUid != widget.clientData['createdBy']) {
-        final creditsQuery =
-            await FirebaseFirestore.instance
-                .collection('credits')
-                .where('clientId', isEqualTo: widget.clientId)
-                .get();
-
-        final batch = FirebaseFirestore.instance.batch();
-        for (final doc in creditsQuery.docs) {
-          batch.update(doc.reference, {'createdBy': selectedCollectorUid});
-        }
-        await batch.commit();
+      if (mounted) {
+        Navigator.pop(context); // Cerrar diálogo de carga
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Cliente actualizado exitosamente'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        Navigator.pop(context); // Volver atrás
       }
-
-      // Cerrar diálogo de carga
-      if (mounted) Navigator.pop(context);
-
-      // Mostrar mensaje de éxito
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Cliente actualizado exitosamente'),
-          backgroundColor: Colors.green,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ),
-      );
-
-      if (mounted) Navigator.pop(context);
     } catch (e) {
-      // Cerrar diálogo de carga si hay error
-      if (mounted) Navigator.pop(context);
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error al actualizar: ${e.toString()}'),
-          backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      if (mounted) {
+        Navigator.pop(context); // Cerrar diálogo de carga
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al actualizar: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
+  }
+
+  Future<void> _updateCreditsCollector(String? newCollectorId) async {
+    final creditsQuery =
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(currentUser!.uid)
+            .collection('offices')
+            .doc(widget.officeId)
+            .collection('credits')
+            .where('clientId', isEqualTo: widget.clientId)
+            .get();
+
+    final batch = FirebaseFirestore.instance.batch();
+    for (final doc in creditsQuery.docs) {
+      batch.update(doc.reference, {'createdBy': newCollectorId});
+    }
+    await batch.commit();
   }
 
   @override
@@ -343,27 +363,20 @@ class _EditClientScreenState extends State<EditClientScreen> {
   Widget _buildCollectorDropdown() {
     return DropdownButtonFormField<String>(
       value: selectedCollectorUid,
-      decoration: InputDecoration(
+      onChanged: (value) {
+        setState(() {
+          selectedCollectorUid = value;
+        });
+      },
+      decoration: const InputDecoration(
         labelText: 'Asignar a Collector',
-        prefixIcon: Icon(Icons.person_search, color: Theme.of(context).primaryColor),
-        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-        filled: true,
-        fillColor: Colors.grey[50],
+        border: OutlineInputBorder(),
       ),
-      onChanged: (value) => setState(() => selectedCollectorUid = value),
       items:
           collectors.map((collector) {
             return DropdownMenuItem<String>(
               value: collector['uid'],
-              child: Text(
-                collector['name']!,
-                style: TextStyle(
-                  color:
-                      selectedCollectorUid == collector['uid']
-                          ? Theme.of(context).primaryColor
-                          : Colors.black,
-                ),
-              ),
+              child: Text(collector['name']),
             );
           }).toList(),
     );
