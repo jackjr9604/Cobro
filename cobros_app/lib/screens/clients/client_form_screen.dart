@@ -78,15 +78,8 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
         final clientId = widget.clientId ?? _generateClientId();
         final now = FieldValue.serverTimestamp();
 
-        final clientRef = FirebaseFirestore.instance
-            .collection('users')
-            .doc(_createdBy)
-            .collection('offices')
-            .doc(widget.officeId)
-            .collection('clients')
-            .doc(clientId);
-
-        await clientRef.set({
+        // Preparar los datos en un mapa
+        final data = {
           'clientName': _clientName,
           'cc': _cc,
           'cellphone': _cellphone,
@@ -97,9 +90,28 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
           'city': _city,
           'createdAt': isEditing ? (widget.initialData?['createdAt'] ?? now) : now,
           'updatedAt': now,
-          'createdBy': _createdBy,
           'officeId': widget.officeId,
-        }, SetOptions(merge: isEditing));
+        };
+
+        // Obtener rol del usuario actual
+        final user = FirebaseAuth.instance.currentUser!;
+        final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+        final userRole = userDoc.data()?['role'];
+
+        // Agregar createdBy si no es owner
+        if (userRole != 'owner') {
+          data['createdBy'] = _createdBy;
+        }
+
+        final clientRef = FirebaseFirestore.instance
+            .collection('users')
+            .doc(_createdBy)
+            .collection('offices')
+            .doc(widget.officeId)
+            .collection('clients')
+            .doc(clientId);
+
+        await clientRef.set(data, SetOptions(merge: isEditing));
 
         if (mounted) {
           Navigator.pop(context); // Cerrar diálogo de carga
