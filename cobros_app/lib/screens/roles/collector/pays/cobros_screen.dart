@@ -6,9 +6,9 @@ import 'credit_detail_screen.dart';
 import 'inactive_credits_screen.dart';
 
 class CobrosScreen extends StatefulWidget {
-  // Nuevo parámetro
 
-  const CobrosScreen({super.key}); // Actualiza el constructor
+
+  const CobrosScreen({super.key});
 
   @override
   State<CobrosScreen> createState() => _CobrosScreenState();
@@ -18,17 +18,7 @@ class _CobrosScreenState extends State<CobrosScreen> {
   final Map<String, int> orderMap = {};
   final Map<String, TextEditingController> controllers = {};
 
-  bool _allPaymentsInactive(Map<String, dynamic> data) {
-    for (var entry in data.entries) {
-      if (entry.key.startsWith('pay') && entry.value is Map<String, dynamic>) {
-        final isActive = entry.value['isActive'];
-        if (isActive == true) {
-          return false; // Hay al menos un pago activo
-        }
-      }
-    }
-    return true; // Todos los pagos están inactivos o no hay pagos
-  }
+
 
   Map<String, dynamic> _calculateOverdueInfo(Map<String, dynamic> creditData) {
     final now = DateTime.now();
@@ -69,251 +59,283 @@ class _CobrosScreenState extends State<CobrosScreen> {
 
   @override
   void dispose() {
-    for (final controller in controllers.values) {
-      controller.dispose();
-    }
+    controllers.values.forEach((controller) => controller.dispose());
     super.dispose();
   }
+
+  Future<String?> _getCurrentUserId() async {
+    return FirebaseAuth.instance.currentUser?.uid;
+  }
+
 
   Future<String?> _getOfficeId() async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return null;
 
     final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-
     return userDoc.data()?['officeId'] as String?;
   }
 
   Future<void> _registerPayment(BuildContext context, DocumentSnapshot creditDoc) async {
-    final docId = creditDoc.id;
     final data = creditDoc.data() as Map<String, dynamic>;
+    final creditValue = (data['credit'] ?? 0).toDouble();
+    final interestPercent = (data['interest'] ?? 0).toDouble();
+    final cuot = (data['cuot'] ?? 1).toInt();
 
-    final credit = (data['credit'] ?? 0) as num;
-    final interestPercent = (data['interest'] ?? 0) as num;
-    final cuot = (data['cuot'] ?? 1) as num;
-
-    final interest = credit * interestPercent / 100;
-    final total = credit + interest;
+    final interest = creditValue * interestPercent / 100;
+    final total = creditValue + interest;
     final cuotaSugerida = total / cuot;
 
     final controller = TextEditingController(text: cuotaSugerida.toStringAsFixed(0));
-    final totalAbonado = _sumActivePayments(data);
+    final totalAbonado = await _getTotalPayments(creditDoc.reference);
     final saldoRestante = total - totalAbonado;
 
     DateTime selectedDate = DateTime.now();
 
     await showDialog(
       context: context,
-      builder:
-          (context) => StatefulBuilder(
-            builder: (context, setState) {
-              return AlertDialog(
-                title: const Text('Registrar pago'),
-                content: Column(
-                  mainAxisSize: MainAxisSize.min,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            title: const Text('Registrar pago'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Saldo restante: \$${NumberFormat('#,##0', 'es_CO').format(saldoRestante)}'),
+                TextField(
+                  controller: controller,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Valor del abono'),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
-                    Text(
-                      'Saldo restante: \$${NumberFormat('#,##0', 'es_CO').format(saldoRestante)}',
+                    ElevatedButton(
+                      onPressed: () => setState(() => selectedDate = DateTime.now()),
+                      child: const Text('Hoy'),
                     ),
-                    TextField(
-                      controller: controller,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: 'Valor del abono'),
+                    ElevatedButton(
+                      onPressed: () => setState(() => selectedDate = DateTime.now().add(const Duration(days: 1))),
+                      child: const Text('Mañana'),
                     ),
-                    const SizedBox(height: 12),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        ElevatedButton(
-                          onPressed:
-                              () => setState(() {
-                                selectedDate = DateTime.now();
-                              }),
-                          child: const Text('Hoy'),
-                        ),
-                        ElevatedButton(
-                          onPressed:
-                              () => setState(() {
-                                selectedDate = DateTime.now().add(const Duration(days: 1));
-                              }),
-                          child: const Text('Mañana'),
-                        ),
-                        IconButton(
-                          tooltip: 'Seleccionar fecha',
-                          icon: const Icon(Icons.calendar_today),
-                          onPressed: () async {
-                            final picked = await showDatePicker(
-                              context: context,
-                              initialDate: selectedDate,
-                              firstDate: DateTime(2020),
-                              lastDate: DateTime(2100),
-                            );
-                            if (picked != null) {
-                              setState(() {
-                                selectedDate = picked;
-                              });
-                            }
-                          },
-                        ),
-                      ],
+                    IconButton(
+                      icon: const Icon(Icons.calendar_today),
+                      onPressed: () async {
+                        final picked = await showDatePicker(
+                          context: context,
+                          initialDate: selectedDate,
+                          firstDate: DateTime(2020),
+                          lastDate: DateTime(2100),
+                        );
+                        if (picked != null) setState(() => selectedDate = picked);
+                      },
                     ),
-
-                    const SizedBox(height: 8),
-                    Text('Fecha seleccionada: ${DateFormat('yyyy-MM-dd').format(selectedDate)}'),
                   ],
                 ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('Cancelar'),
-                  ),
-                  TextButton(
-                    onPressed: () async {
-                      final valor = int.tryParse(controller.text);
-                      if (valor == null || valor <= 0) {
-                        ScaffoldMessenger.of(
-                          context,
-                        ).showSnackBar(const SnackBar(content: Text('Valor inválido')));
-                        return;
-                      }
-                      if (valor > saldoRestante) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('El pago excede el saldo restante')),
-                        );
-                        return;
-                      }
-
-                      final officeId = await _getOfficeId();
-                      if (officeId == null) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Error: No se pudo obtener officeId')),
-                        );
-                        return;
-                      } // Usa widget.officeId aquí
-
-                      final pays = data.keys.where((key) => key.startsWith('pay')).toList();
-                      final nextPayNumber = pays.length + 1;
-                      final paymentId = '${creditDoc.id}_pay$nextPayNumber'; // Mejor ID único
-
-                      final batch = FirebaseFirestore.instance.batch();
-                      final creditRef = FirebaseFirestore.instance
-                          .collection('credits')
-                          .doc(creditDoc.id);
-
-                      // 1. Actualizar crédito (dentro del batch)
-                      batch.update(creditRef, {
-                        'pay$nextPayNumber': {
-                          'amount': valor,
-                          'date': Timestamp.fromDate(selectedDate),
-                          'isActive': true,
-                          'paymentId': paymentId,
-                        },
-                        'lastPaymentDate': Timestamp.fromDate(selectedDate),
-                        'nextPaymentIndex': FieldValue.increment(1),
-                        'daysOverdue': 0,
-                        'accumulatedInterest': 0.0,
-                      });
-
-                      // 2. Actualizar dailyCollections
-                      final dateKey = DateFormat('yyyy-MM-dd').format(selectedDate);
-                      final dailyCollectionRef = FirebaseFirestore.instance
-                          .collection('offices')
-                          .doc(officeId)
-                          .collection('dailyCollections')
-                          .doc(dateKey);
-
-                      batch.set(dailyCollectionRef, {
-                        'total': FieldValue.increment(valor),
-                        'payments': FieldValue.arrayUnion([paymentId]),
-                        'timestamp': Timestamp.fromDate(selectedDate),
-                      }, SetOptions(merge: true));
-
-                      // 3. Actualizar balance total
-                      final officeRef = FirebaseFirestore.instance
-                          .collection('offices')
-                          .doc(officeId);
-                      batch.update(officeRef, {'totalBalance': FieldValue.increment(valor)});
-
-                      // 4. Crear documento en offices/{officeId}/payments/{paymentId}
-                      final paymentRef = FirebaseFirestore.instance
-                          .collection('offices')
-                          .doc(officeId)
-                          .collection('payments')
-                          .doc(paymentId);
-
-                      batch.set(paymentRef, {
-                        'amount': valor,
-                        'date': Timestamp.fromDate(selectedDate),
-                        'creditId': creditDoc.id,
-                        'isActive': true,
-                        'timestamp': Timestamp.now(),
-                      });
-
-                      try {
-                        await batch.commit(); // Ejecutar TODAS las operaciones juntas
-                        Navigator.of(context).pop();
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Pago registrado exitosamente')),
-                        );
-                      } catch (e) {
-                        ScaffoldMessenger.of(
-                          context,
-                        ).showSnackBar(SnackBar(content: Text('Error: $e')));
-                      }
-                    },
-                    child: const Text('Guardar'),
-                  ),
-                ],
-              );
-            },
-          ),
+                const SizedBox(height: 8),
+                Text('Fecha seleccionada: ${DateFormat('yyyy-MM-dd').format(selectedDate)}'),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Cancelar'),
+              ),
+              TextButton(
+                onPressed: () => _processPayment(
+                  context: context,
+                  creditDoc: creditDoc,
+                  valor: double.tryParse(controller.text),
+                  selectedDate: selectedDate,
+                  saldoRestante: saldoRestante,
+                ),
+                child: const Text('Guardar'),
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 
-  Future<void> _closeCredit(DocumentSnapshot creditDoc) async {
-    final docId = creditDoc.id;
-    final creditRef = FirebaseFirestore.instance.collection('credits').doc(docId);
-
-    // Actualiza el crédito como cerrado
-    await creditRef.update({
-      'isActive': false,
-      'paid': Timestamp.now(), // fecha y hora del cierre
-    });
-
-    // Obtener el clientId para actualizar el cliente
-    final creditData = creditDoc.data() as Map<String, dynamic>;
-    final clientId = creditData['clientId'];
-
-    if (clientId != null) {
-      final clientRef = FirebaseFirestore.instance.collection('clients').doc(clientId);
-
-      // Campo con la key del crédito que se está cerrando y se añade 'paidAt'
-      final String creditFieldKey = docId;
-
-      // La fecha actual para paidAt
-      final Timestamp paidAtTimestamp = Timestamp.now();
-
-      // Usar FieldValue para actualizar solo el campo dentro del map
-      await clientRef.update({'$creditFieldKey.paidAt': paidAtTimestamp});
+  Future<void> _processPayment({
+    required BuildContext context,
+    required DocumentSnapshot creditDoc,
+    required double? valor,
+    required DateTime selectedDate,
+    required double saldoRestante,
+  }) async {
+    if (valor == null || valor <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Valor inválido')));
+      return;
     }
 
-    // Luego, actualizar el orden y los controladores localmente
-    setState(() {
-      orderMap.remove(docId);
-      controllers.remove(docId);
+    if (valor > saldoRestante) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('El pago excede el saldo restante')));
+      return;
+    }
 
-      final activeCreditIds = orderMap.keys.toList();
-      activeCreditIds.sort((a, b) => orderMap[a]!.compareTo(orderMap[b]!));
+    final userId = await _getCurrentUserId();
+    final officeId = await _getOfficeId();
 
-      for (int i = 0; i < activeCreditIds.length; i++) {
-        final id = activeCreditIds[i];
-        orderMap[id] = i + 1;
-        if (controllers.containsKey(id)) {
-          controllers[id]!.text = (i + 1).toString();
-        }
+    if (userId == null || officeId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error: No se pudo obtener información del usuario')));
+      return;
+    }
+
+    try {
+      final paymentId = DateTime.now().millisecondsSinceEpoch.toString();
+      final batch = FirebaseFirestore.instance.batch();
+
+      // 1. Crear documento en la subcolección payments
+      final paymentRef = creditDoc.reference.collection('payments').doc(paymentId);
+      batch.set(paymentRef, {
+        'amount': valor,
+        'date': Timestamp.fromDate(selectedDate),
+        'isActive': true,
+        'timestamp': Timestamp.now(),
+        'paymentId': paymentId,
+        'collectorId': userId,
+        'officeId': officeId,
+      });
+
+      // 2. Actualizar crédito
+      batch.update(creditDoc.reference, {
+        'lastPaymentDate': Timestamp.fromDate(selectedDate),
+        'nextPaymentIndex': FieldValue.increment(1),
+        'daysOverdue': 0,
+        'accumulatedInterest': 0.0,
+        'updatedAt': Timestamp.now(),
+      });
+
+      // 3. Actualizar dailyCollections
+      final dateKey = DateFormat('yyyy-MM-dd').format(selectedDate);
+      final dailyCollectionRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .collection('offices')
+          .doc(officeId)
+          .collection('dailyCollections')
+          .doc(dateKey);
+
+      batch.set(dailyCollectionRef, {
+        'total': FieldValue.increment(valor),
+        'payments': FieldValue.arrayUnion([paymentId]),
+        'timestamp': Timestamp.fromDate(selectedDate),
+      }, SetOptions(merge: true));
+
+      // 4. Actualizar balance de la oficina
+      final officeRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .collection('offices')
+          .doc(officeId);
+
+      batch.update(officeRef, {'totalBalance': FieldValue.increment(valor)});
+
+      await batch.commit();
+
+      if (mounted) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pago registrado exitosamente')));
       }
-    });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
+    }
   }
+
+
+
+  Future<double> _getTotalPayments(DocumentReference creditRef) async {
+    final payments = await creditRef.collection('payments').get();
+    return payments.docs.fold(0.0, (sum, doc) => sum + (doc['amount'] ?? 0).toDouble());
+  }
+
+  Future<bool> _canCloseCredit(DocumentReference creditRef) async {
+    final creditData = (await creditRef.get()).data() as Map<String, dynamic>;
+    final totalPayments = await _getTotalPayments(creditRef);
+    final creditValue = (creditData['credit'] ?? 0).toDouble();
+    final interest = creditValue * ((creditData['interest'] ?? 0).toDouble() / 100);
+    final total = creditValue + interest;
+
+    if (totalPayments < total) return false;
+
+    final activePayments = await creditRef
+        .collection('payments')
+        .where('isActive', isEqualTo: true)
+        .limit(1)
+        .get();
+
+    return activePayments.docs.isEmpty;
+  }
+
+  Future<void> _closeCredit(DocumentSnapshot creditDoc) async {
+    final batch = FirebaseFirestore.instance.batch();
+    final creditRef = creditDoc.reference;
+    final clientId = creditDoc['clientId'];
+    final userId = await _getCurrentUserId();
+    final officeId = await _getOfficeId();
+
+    if (userId == null || officeId == null) return;
+
+    // 1. Marcar crédito como cerrado
+    batch.update(creditRef, {
+      'isActive': false,
+      'paidAt': Timestamp.now(),
+      'updatedAt': Timestamp.now(),
+    });
+
+    // 2. Marcar todos los pagos como inactivos
+    final payments = await creditRef.collection('payments').get();
+    for (final payment in payments.docs) {
+      batch.update(payment.reference, {'isActive': false});
+    }
+
+    // 3. Actualizar cliente si existe
+    if (clientId != null) {
+      final clientRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .collection('offices')
+          .doc(officeId)
+          .collection('clients')
+          .doc(clientId);
+
+      batch.update(clientRef, {
+        'updatedAt': Timestamp.now(),
+        'lastCreditStatus': 'closed',
+      });
+    }
+
+    try {
+      await batch.commit();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Crédito cerrado con éxito')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error al cerrar crédito: $e')));
+      }
+    }
+  }
+
+   Future<bool> _allPaymentsInactive(DocumentReference creditRef) async {
+    final activePayments = await creditRef
+        .collection('payments')
+        .where('isActive', isEqualTo: true)
+        .limit(1)
+        .get();
+    return activePayments.docs.isEmpty;
+  }
+
+
+
+
+
+
 
   int _sumActivePayments(Map<String, dynamic> data) {
     int sum = 0;
@@ -337,7 +359,7 @@ class _CobrosScreenState extends State<CobrosScreen> {
       return const Scaffold(body: Center(child: Text('Usuario no autenticado')));
     }
 
-    final uid = currentUser.uid;
+
 
     return Scaffold(
       appBar: AppBar(
@@ -357,12 +379,11 @@ class _CobrosScreenState extends State<CobrosScreen> {
       ),
 
       body: StreamBuilder<QuerySnapshot>(
-        stream:
-            FirebaseFirestore.instance
-                .collection('credits')
-                .where('createdBy', isEqualTo: uid)
-                .where('isActive', isEqualTo: true)
-                .snapshots(),
+        stream: FirebaseFirestore.instance
+            .collectionGroup('credits') // Usamos collectionGroup para buscar en todas las subcolecciones
+            .where('createdBy', isEqualTo: currentUser.uid)
+            .where('isActive', isEqualTo: true)
+            .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
@@ -398,7 +419,11 @@ class _CobrosScreenState extends State<CobrosScreen> {
               final totalAbonado = _sumActivePayments(data);
               final saldoRestante = total - totalAbonado;
 
-              final puedeCerrar = totalAbonado >= total && _allPaymentsInactive(data);
+
+              final puedeCerrar = totalAbonado >= total && await _allPaymentsInactive(data);
+
+
+
 
               // Calcular información de morosidad
               final overdueInfo = _calculateOverdueInfo(data);

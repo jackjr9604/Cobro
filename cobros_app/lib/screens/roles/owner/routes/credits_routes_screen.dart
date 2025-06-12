@@ -260,6 +260,7 @@ class CreditsRoutesScreen extends StatelessWidget {
                       (context) => CollectorLiquidationScreen(
                         collectorId: collectorId,
                         collectorName: collectorName,
+                        officeId: officeId,
                       ),
                 ),
               );

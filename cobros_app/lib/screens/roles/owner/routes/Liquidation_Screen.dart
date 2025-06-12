@@ -2,15 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class CollectorLiquidationScreen extends StatefulWidget {
   final String collectorId;
   final String collectorName;
+  final String officeId; // Nuevo parámetro requerido
 
   const CollectorLiquidationScreen({
     super.key,
     required this.collectorId,
     required this.collectorName,
+    required this.officeId, // Obligatorio
   });
 
   @override
@@ -55,8 +58,16 @@ class _CollectorLiquidationScreenState extends State<CollectorLiquidationScreen>
   Future<void> _getOfficeId() async {
     setState(() => isLoading = true);
     try {
+      // En _getOfficeId():
       final userDoc =
-          await FirebaseFirestore.instance.collection('users').doc(widget.collectorId).get();
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(FirebaseAuth.instance.currentUser!.uid) // Usar el userId del owner
+              .collection('offices')
+              .doc(officeId)
+              .collection('collectors')
+              .doc(widget.collectorId)
+              .get();
       final data = userDoc.data();
       setState(() {
         officeId = data?['officeId'] ?? '';
@@ -114,42 +125,48 @@ class _CollectorLiquidationScreenState extends State<CollectorLiquidationScreen>
 
   Future<void> _fetchPayments() async {
     setState(() => isLoading = true);
-
     try {
-      final creditsSnapshot =
+      final clientsQuery =
           await FirebaseFirestore.instance
-              .collection('credits')
-              .where('createdBy', isEqualTo: widget.collectorId)
-              .where('isActive', isEqualTo: true)
+              .collection('users')
+              .doc(FirebaseAuth.instance.currentUser!.uid)
+              .collection('offices')
+              .doc(widget.officeId)
+              .collection('clients')
+              .where('assignedCollectorId', isEqualTo: widget.collectorId)
               .get();
 
       final List<Map<String, dynamic>> fetchedPayments = [];
       double collected = 0;
 
-      for (var doc in creditsSnapshot.docs) {
-        final data = doc.data();
-        final clientId = data['clientId'];
-        final creditRef = doc.reference;
-        final clientSnapshot =
-            await FirebaseFirestore.instance.collection('clients').doc(clientId).get();
-        final clientName = clientSnapshot.data()?['clientName'] ?? 'Desconocido';
+      for (var clientDoc in clientsQuery.docs) {
+        final creditsSnapshot =
+            await clientDoc.reference
+                .collection('credits')
+                .where('isActive', isEqualTo: true)
+                .get();
 
-        for (var entry in data.entries) {
-          if (entry.key.startsWith('pay') && entry.value is Map<String, dynamic>) {
-            final pay = entry.value as Map<String, dynamic>;
-            final payDate = (pay['date'] as Timestamp).toDate();
-            if (pay['isActive'] == true &&
-                DateFormat('yyyy-MM-dd').format(payDate) ==
-                    DateFormat('yyyy-MM-dd').format(selectedDate!)) {
-              fetchedPayments.add({
-                'clientName': clientName,
-                'amount': pay['amount'],
-                'date': payDate,
-                'creditRef': creditRef,
-                'payKey': entry.key,
-                'clientId': clientId,
-              });
-              collected += pay['amount'];
+        for (var creditDoc in creditsSnapshot.docs) {
+          final creditData = creditDoc.data();
+          final creditRef = creditDoc.reference;
+
+          for (var entry in creditData.entries) {
+            if (entry.key.startsWith('pay') && entry.value is Map<String, dynamic>) {
+              final pay = entry.value as Map<String, dynamic>;
+              final payDate = (pay['date'] as Timestamp).toDate();
+              if (pay['isActive'] == true &&
+                  DateFormat('yyyy-MM-dd').format(payDate) ==
+                      DateFormat('yyyy-MM-dd').format(selectedDate!)) {
+                fetchedPayments.add({
+                  'clientName': clientDoc['clientName'],
+                  'amount': pay['amount'],
+                  'date': payDate,
+                  'creditRef': creditRef,
+                  'payKey': entry.key,
+                  'clientId': clientDoc.id,
+                });
+                collected += pay['amount'];
+              }
             }
           }
         }
@@ -195,12 +212,18 @@ class _CollectorLiquidationScreenState extends State<CollectorLiquidationScreen>
       final newBase = double.tryParse(_baseController.text) ?? _originalBase;
       final liquidationDate = selectedDate ?? DateTime.now();
 
-      // 1. Preparar datos de actualización
-      final collectorDoc =
-          await FirebaseFirestore.instance.collection('users').doc(widget.collectorId).get();
+      // 1. Preparar datos de liquidación
+      final collectorRef = FirebaseFirestore.instance
+          .collection('users')
+          .doc(FirebaseAuth.instance.currentUser!.uid)
+          .collection('offices')
+          .doc(widget.officeId)
+          .collection('collectors')
+          .doc(widget.collectorId);
 
-      final lastLiquidation = collectorDoc.data()?['lastLiquidationDate'] as Timestamp?;
-      final currentMonthlyCollection = (collectorDoc.data()?['monthlyCollection'] ?? 0).toDouble();
+      final collectorDoc = await collectorRef.get();
+      final lastLiquidation = collectorDoc['lastLiquidationDate'] as Timestamp?;
+      final currentMonthlyCollection = (collectorDoc['monthlyCollection'] ?? 0).toDouble();
 
       final isNewMonth =
           lastLiquidation == null ||
@@ -233,17 +256,19 @@ class _CollectorLiquidationScreenState extends State<CollectorLiquidationScreen>
                 )
                 .toList(),
         'createdAt': FieldValue.serverTimestamp(),
+        'officeId': widget.officeId,
+        'createdBy': FirebaseAuth.instance.currentUser!.uid,
       };
 
       // 3. Ejecutar operaciones atómicas
       final batch = FirebaseFirestore.instance.batch();
 
       // Actualizar cobrador
-      final collectorRef = FirebaseFirestore.instance.collection('users').doc(widget.collectorId);
       batch.update(collectorRef, {
         'base': newBase,
         'lastLiquidationDate': Timestamp.fromDate(liquidationDate),
         'monthlyCollection': isNewMonth ? netTotal : currentMonthlyCollection + netTotal,
+        'updatedAt': FieldValue.serverTimestamp(),
       });
 
       // Actualizar oficina (balance general)
@@ -253,18 +278,28 @@ class _CollectorLiquidationScreenState extends State<CollectorLiquidationScreen>
         'updatedAt': FieldValue.serverTimestamp(),
       });
 
-      // Crear liquidación en subcolección
-      final liquidationRef = officeRef.collection('liquidations').doc(Uuid().v4());
+      // Crear liquidación
+      final liquidationRef =
+          FirebaseFirestore.instance
+              .collection('users')
+              .doc(FirebaseAuth.instance.currentUser!.uid)
+              .collection('offices')
+              .doc(widget.officeId)
+              .collection('liquidations')
+              .doc();
       batch.set(liquidationRef, liquidationData);
 
       // Marcar pagos como liquidados
       for (var payment in paymentsOfDay) {
-        batch.update(payment['creditRef'], {'${payment['payKey']}.isActive': false});
+        batch.update(payment['creditRef'], {
+          '${payment['payKey']}.isActive': false,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
       }
 
       await batch.commit();
 
-      // 4. Mostrar confirmación y resetear formulario
+      // 4. Mostrar confirmación
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Liquidación registrada correctamente'),
@@ -272,6 +307,7 @@ class _CollectorLiquidationScreenState extends State<CollectorLiquidationScreen>
         ),
       );
 
+      // 5. Resetear formulario
       setState(() {
         selectedDate = null;
         paymentsOfDay = [];
