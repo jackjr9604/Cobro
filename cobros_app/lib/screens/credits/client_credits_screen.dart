@@ -8,13 +8,79 @@ class ClientCreditsScreen extends StatelessWidget {
   final String clientId;
   final String clientName;
   final String officeId;
+  final String userId;
 
   const ClientCreditsScreen({
     super.key,
     required this.clientId,
     required this.clientName,
     required this.officeId,
+    required this.userId,
   });
+
+  Future<void> _deleteCredit(BuildContext context, String creditId) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+    final role = userDoc.data()?['role'];
+
+    if (role != 'owner') {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('No tienes permisos para eliminar créditos')));
+      return;
+    }
+
+    final confirmation = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Confirmar eliminación'),
+          content: const Text('¿Estás seguro de eliminar este crédito?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancelar'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Eliminar', style: TextStyle(color: Colors.red)),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmation == true) {
+      try {
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(userId)
+            .collection('offices')
+            .doc(officeId)
+            .collection('clients')
+            .doc(clientId)
+            .collection('credits')
+            .doc(creditId)
+            .delete();
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Crédito eliminado con éxito'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al eliminar: ${e.toString()}'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -26,8 +92,14 @@ class ClientCreditsScreen extends StatelessWidget {
       body: StreamBuilder(
         stream:
             FirebaseFirestore.instance
+                .collection('users')
+                .doc(userId)
+                .collection('offices')
+                .doc(officeId)
+                .collection('clients')
+                .doc(clientId)
                 .collection('credits')
-                .where('clientId', isEqualTo: clientId)
+                .orderBy('createdAt', descending: true)
                 .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
@@ -203,58 +275,13 @@ class ClientCreditsScreen extends StatelessWidget {
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (_) => CreateCreditScreen(clientId: clientId, officeId: officeId),
+              builder:
+                  (_) => CreateCreditScreen(clientId: clientId, officeId: officeId, userId: userId),
             ),
           );
         },
         child: const Icon(Icons.add),
       ),
     );
-  }
-}
-
-Future<void> _deleteCredit(BuildContext context, String creditId) async {
-  final user = FirebaseAuth.instance.currentUser;
-  if (user == null) return;
-
-  final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-  final role = userDoc.data()?['role'];
-
-  if (role != 'owner') {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('No tienes permisos para eliminar clientes')));
-    return;
-  }
-
-  final confirmation = await showDialog<bool>(
-    context: context,
-    builder: (BuildContext context) {
-      return AlertDialog(
-        title: const Text('Confirmar eliminación'),
-        content: const Text(
-          '¿Estás seguro de que deseas eliminar este crédito? Esta acción no se puede deshacer.',
-        ),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancelar'),
-            style: TextButton.styleFrom(foregroundColor: Colors.grey),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Eliminar', style: TextStyle(color: Colors.red)),
-            style: TextButton.styleFrom(backgroundColor: Colors.red[50]),
-          ),
-        ],
-      );
-    },
-  );
-
-  if (confirmation == true) {
-    await FirebaseFirestore.instance.collection('credits').doc(creditId).delete();
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Cliente eliminado con éxito')));
   }
 }

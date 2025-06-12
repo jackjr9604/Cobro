@@ -6,8 +6,14 @@ import 'package:intl/intl.dart';
 class CreateCreditScreen extends StatefulWidget {
   final String clientId;
   final String officeId;
+  final String userId;
 
-  const CreateCreditScreen({super.key, required this.clientId, required this.officeId});
+  const CreateCreditScreen({
+    super.key,
+    required this.clientId,
+    required this.officeId,
+    required this.userId,
+  });
 
   @override
   State<CreateCreditScreen> createState() => _CreateCreditScreenState();
@@ -133,27 +139,34 @@ class _CreateCreditScreenState extends State<CreateCreditScreen> {
         builder: (context) => const Center(child: CircularProgressIndicator()),
       );
 
-      // Obtener el UID del cobrador desde el cliente
+      // Obtener datos del cliente
       final clientDoc =
-          await FirebaseFirestore.instance.collection('clients').doc(widget.clientId).get();
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(widget.userId)
+              .collection('offices')
+              .doc(widget.officeId)
+              .collection('clients')
+              .doc(widget.clientId)
+              .get();
 
-      final clientData = clientDoc.data();
-      if (clientData == null || !clientData.containsKey('createdBy')) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Error: el cliente no tiene un creador asignado')),
-        );
-        return;
+      if (!clientDoc.exists) {
+        throw Exception('Cliente no encontrado');
       }
 
-      final clientCreatorUid = clientData['createdBy'];
-      final docId = '${widget.clientId}_${const Uuid().v4().substring(0, 10)}';
+      final clientData = clientDoc.data();
+      final clientCreatorUid = clientData?['createdBy'] ?? widget.userId;
+
+      // Generar ID simple para el crédito
+      final creditId = DateTime.now().millisecondsSinceEpoch.toString();
       final now = DateTime.now();
 
       // Calcular fechas de pago
       final paymentDates = _calculatePaymentDates(now, _method, _selectedDay);
       final paymentSchedule = paymentDates.map((date) => date.toIso8601String()).toList();
 
-      Map<String, dynamic> dataToSave = {
+      // Datos del crédito
+      final creditData = {
         'clientId': widget.clientId,
         'officeId': widget.officeId,
         'createdBy': clientCreatorUid,
@@ -168,65 +181,69 @@ class _CreateCreditScreenState extends State<CreateCreditScreen> {
         'lastPaymentDate': null, // Se actualizará cuando se hagan pagos
         'daysOverdue': 0, // Días en mora
         'accumulatedInterest': 0.0, // Interés acumulado por mora
+        if (_method == 'Semanal') 'day': _selectedDay,
       };
 
-      if (_method == 'Semanal') {
-        dataToSave['day'] = _selectedDay;
-      }
-
       // Guardar el crédito
-      await FirebaseFirestore.instance.collection('credits').doc(docId).set(dataToSave);
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.userId)
+          .collection('offices')
+          .doc(widget.officeId)
+          .collection('clients')
+          .doc(widget.clientId)
+          .collection('credits')
+          .doc(creditId)
+          .set(creditData);
 
       // Obtener todos los créditos actuales del cliente
-      final clientCreditsSnapshot =
+      final creditsQuery =
           await FirebaseFirestore.instance
+              .collection('users')
+              .doc(widget.userId)
+              .collection('offices')
+              .doc(widget.officeId)
+              .collection('clients')
+              .doc(widget.clientId)
               .collection('credits')
-              .where('clientId', isEqualTo: widget.clientId)
+              .count()
               .get();
 
       // El número consecutivo será la cantidad de créditos + 1 (porque este aún no cuenta si se consulta antes)
-      final creditNumber = clientCreditsSnapshot.docs.length;
+      final creditNumber = creditsQuery.count;
 
-      // Crear el Map a agregar al documento del cliente
-      final creditMap = {
-        'credit#': creditNumber,
-        'credit': _credit,
-        'interest': _interestPercent,
-        'method': _method,
-        'createdAt': Timestamp.now(),
-        'creditId': docId,
-      };
-
-      // Actualizar el documento del cliente con un nuevo campo con ID del crédito
-      await FirebaseFirestore.instance.collection('clients').doc(widget.clientId).update({
-        docId: creditMap,
-      });
+      // Actualizar referencia en el cliente
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(widget.userId)
+          .collection('offices')
+          .doc(widget.officeId)
+          .collection('clients')
+          .doc(widget.clientId)
+          .update({
+            'lastCreditId': creditId,
+            'lastCreditNumber': creditNumber,
+            'updatedAt': Timestamp.now(),
+          });
 
       // Cerrar diálogo de carga
-      if (mounted) Navigator.pop(context);
-
-      // Mostrar mensaje de éxito
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Crédito creado exitosamente'),
-          backgroundColor: Colors.green,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        ),
-      );
-
-      if (mounted) Navigator.pop(context);
+      if (mounted) {
+        Navigator.pop(context); // Cerrar diálogo de carga
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Crédito creado exitosamente'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        Navigator.pop(context); // Volver atrás
+      }
     } catch (e) {
-      // Cerrar diálogo de carga si hay error
-      if (mounted) Navigator.pop(context);
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error al guardar: ${e.toString()}'),
-          backgroundColor: Colors.red,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error al guardar: ${e.toString()}'), backgroundColor: Colors.red),
+        );
+      }
     }
   }
 

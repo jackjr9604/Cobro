@@ -503,10 +503,16 @@ class _ClientsScreenState extends State<ClientsScreen> with OfficeVerificationMi
                                               MaterialPageRoute(
                                                 builder:
                                                     (_) => ClientCreditsScreen(
-                                                      officeId: data['officeId'],
                                                       clientId: client.id,
                                                       clientName:
-                                                          data['clientName'] ?? 'sin nombre',
+                                                          client.data()['clientName'] ??
+                                                          'sin nombre',
+                                                      officeId: officeId!,
+                                                      userId:
+                                                          FirebaseAuth
+                                                              .instance
+                                                              .currentUser!
+                                                              .uid, // Añade esta línea
                                                     ),
                                               ),
                                             );

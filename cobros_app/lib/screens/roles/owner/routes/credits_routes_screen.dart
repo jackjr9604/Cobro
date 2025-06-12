@@ -4,10 +4,16 @@ import '../routes/pays_details.dart';
 import 'Liquidation_Screen.dart';
 
 class CreditsRoutesScreen extends StatelessWidget {
-  const CreditsRoutesScreen({super.key, required this.collectorId, required this.collectorName});
+  const CreditsRoutesScreen({
+    super.key,
+    required this.collectorId,
+    required this.collectorName,
+    required this.officeId, // Nuevo parámetro requerido
+  });
 
   final String collectorId;
   final String collectorName;
+  final String officeId;
 
   Future<Map<String, dynamic>> fetchClientName(String clientId) async {
     final doc = await FirebaseFirestore.instance.collection('clients').doc(clientId).get();
