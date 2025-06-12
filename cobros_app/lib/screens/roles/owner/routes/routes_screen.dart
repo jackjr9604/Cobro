@@ -20,6 +20,7 @@ class _RoutesScreenState extends State<RoutesScreen> with OfficeVerificationMixi
   bool hasOffice = false;
   bool isActive = false;
   String? officeId;
+  String? userId;
   Map<String, dynamic>? userData;
 
   @override
@@ -96,18 +97,42 @@ class _RoutesScreenState extends State<RoutesScreen> with OfficeVerificationMixi
   Future<int> getCreditsCount(String collectorId) async {
     if (officeId == null || currentUser == null) return 0;
 
-    final query =
-        await FirebaseFirestore.instance
-            .collection('users')
-            .doc(currentUser!.uid)
-            .collection('offices')
-            .doc(officeId)
-            .collection('credits')
-            .where('createdBy', isEqualTo: collectorId)
-            .where('status', isEqualTo: 'active') // Solo créditos activos
-            .get();
+    try {
+      // Nueva consulta que busca en la estructura correcta
+      final query =
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(currentUser!.uid)
+              .collection('offices')
+              .doc(officeId)
+              .collection('clients')
+              .where('createdBy', isEqualTo: collectorId)
+              .get();
 
-    return query.size;
+      // Para cada cliente, contar sus créditos activos
+      int totalActiveCredits = 0;
+
+      for (final clientDoc in query.docs) {
+        final creditsQuery =
+            await FirebaseFirestore.instance
+                .collection('users')
+                .doc(currentUser!.uid)
+                .collection('offices')
+                .doc(officeId)
+                .collection('clients')
+                .doc(clientDoc.id)
+                .collection('credits')
+                .where('isActive', isEqualTo: true)
+                .get();
+
+        totalActiveCredits += creditsQuery.size;
+      }
+
+      return totalActiveCredits;
+    } catch (e) {
+      debugPrint('Error counting credits: $e');
+      return 0;
+    }
   }
 
   Widget _buildInactiveAccountScreen() {
