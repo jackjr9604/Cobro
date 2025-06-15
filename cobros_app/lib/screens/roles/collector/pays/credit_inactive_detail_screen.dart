@@ -3,102 +3,165 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 class CreditInactiveDetailScreen extends StatelessWidget {
-  final DocumentSnapshot credit;
+  final String userId;
+  final String officeId;
+  final String clientId;
+  final String creditId;
 
-  const CreditInactiveDetailScreen({super.key, required this.credit});
-
+  const CreditInactiveDetailScreen({
+    super.key,
+    required this.userId,
+    required this.officeId,
+    required this.clientId,
+    required this.creditId,
+  });
   @override
   Widget build(BuildContext context) {
+    // Referencia al crédito en la nueva estructura
+    final creditRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(userId)
+        .collection('offices')
+        .doc(officeId)
+        .collection('clients')
+        .doc(clientId)
+        .collection('credits')
+        .doc(creditId);
+
     return StreamBuilder<DocumentSnapshot>(
-      stream: credit.reference.snapshots(),
+      stream: creditRef.snapshots(),
       builder: (context, creditSnapshot) {
         if (!creditSnapshot.hasData) {
           return const Scaffold(body: Center(child: CircularProgressIndicator()));
         }
 
-        final data = creditSnapshot.data!.data() as Map<String, dynamic>;
-        final clientId = data['clientId'];
-        final creditValue = data['credit'] ?? 0;
-        final interest = data['interest'] ?? 0;
-        final cuot = data['cuot'] ?? 1;
+        final creditData = creditSnapshot.data!.data() as Map<String, dynamic>?;
+        if (creditData == null) {
+          return const Scaffold(body: Center(child: Text('Crédito no encontrado')));
+        }
 
+        final creditValue = (creditData['credit'] ?? 0).toDouble();
+        final interest = (creditData['interest'] ?? 0).toDouble();
+        final cuot = (creditData['cuot'] ?? 1).toInt();
+        final method = creditData['method'] ?? 'Diario';
         final total = creditValue + (creditValue * interest / 100);
-        final cuota = total / cuot;
-        final method = data['method'] ?? 'Diario';
-
-        final pays =
-            data.entries
-                .where((e) => e.key.startsWith('pay'))
-                .where(
-                  (e) => e.value is Map<String, dynamic>,
-                ) // Filtra solo los valores que son Map
-                .map((e) => MapEntry(e.key, e.value as Map<String, dynamic>))
-                .toList();
-
-        pays.sort((a, b) => (a.value['date'] as Timestamp).compareTo(b.value['date'] as Timestamp));
-
-        final paid = data['paid']?.toDate();
-        final createdAt = data['createdAt']?.toDate();
+        final cuotaValue = total / cuot;
+        final createdAt = creditData['createdAt']?.toDate();
+        final closedAt = creditData['closedAt']?.toDate();
 
         return StreamBuilder<DocumentSnapshot>(
-          stream: FirebaseFirestore.instance.collection('clients').doc(clientId).snapshots(),
+          stream:
+              FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(userId)
+                  .collection('offices')
+                  .doc(officeId)
+                  .collection('clients')
+                  .doc(clientId)
+                  .snapshots(),
           builder: (context, clientSnapshot) {
             if (!clientSnapshot.hasData) {
               return const Scaffold(body: Center(child: CircularProgressIndicator()));
             }
 
-            final client = clientSnapshot.data!.data() as Map<String, dynamic>;
+            final clientData = clientSnapshot.data!.data() as Map<String, dynamic>?;
+            if (clientData == null) {
+              return const Scaffold(body: Center(child: Text('Cliente no encontrado')));
+            }
 
-            return Scaffold(
-              appBar: AppBar(title: const Text('Detalle del Crédito')),
-              body: SingleChildScrollView(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('📋 Datos del Cliente', style: Theme.of(context).textTheme.titleMedium),
-                    const SizedBox(height: 8),
-                    Text('Nombre: ${client['clientName']}'),
-                    Text('Celular: ${client['cellphone']}'),
-                    if (client['ref'] != null) Text('Ref/Alias: ${client['ref']}'),
-                    if (client['address'] != null) Text('Dirección: ${client['address']}'),
-                    if (client['phone'] != null) Text('Teléfono: ${client['phone']}'),
-                    if (client['address2'] != null) Text('Dirección 2: ${client['address2']}'),
-                    if (client['city'] != null) Text('Ciudad: ${client['city']}'),
-                    const Divider(height: 32),
-                    Text('💰 Datos del Crédito', style: Theme.of(context).textTheme.titleMedium),
-                    const SizedBox(height: 8),
-                    Text('Valor: \$${NumberFormat('#,##0', 'es_CO').format(creditValue)}'),
-                    Text('Interés: ${interest.toStringAsFixed(2)}%'),
-                    Text('Total a pagar: \$${NumberFormat('#,##0', 'es_CO').format(total)}'),
-                    Text('Método: $method'),
-                    Text('Cuotas: $cuot'),
-                    Text('Valor de la cuota: \$${cuota.toStringAsFixed(0)}'),
+            return StreamBuilder<QuerySnapshot>(
+              stream: creditRef.collection('payments').orderBy('date').snapshots(),
+              builder: (context, paymentsSnapshot) {
+                final payments = paymentsSnapshot.data?.docs ?? [];
 
-                    const Divider(height: 32),
-                    Text('📊 Resumen', style: Theme.of(context).textTheme.titleMedium),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Fecha del credito: ${createdAt != null ? DateFormat('yyyy-MM-dd – kk:mm').format(createdAt) : 'N/A'}',
+                return Scaffold(
+                  appBar: AppBar(title: const Text('Detalle del Crédito')),
+                  body: SingleChildScrollView(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Sección de datos del cliente
+                        Text(
+                          '📋 Datos del Cliente',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 8),
+                        Text('Nombre: ${clientData['clientName'] ?? 'No especificado'}'),
+                        Text('Celular: ${clientData['cellphone'] ?? 'No especificado'}'),
+                        if (clientData['refAlias'] != null)
+                          Text('Ref/Alias: ${clientData['refAlias']}'),
+                        if (clientData['address'] != null)
+                          Text('Dirección: ${clientData['address']}'),
+                        if (clientData['phone'] != null) Text('Teléfono: ${clientData['phone']}'),
+                        if (clientData['address2'] != null)
+                          Text('Dirección 2: ${clientData['address2']}'),
+                        if (clientData['city'] != null) Text('Ciudad: ${clientData['city']}'),
+
+                        const Divider(height: 32),
+
+                        // Sección de datos del crédito
+                        Text(
+                          '💰 Datos del Crédito',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 8),
+                        Text('Valor: \$${NumberFormat('#,##0', 'es_CO').format(creditValue)}'),
+                        Text('Interés: ${interest.toStringAsFixed(2)}%'),
+                        Text('Total a pagar: \$${NumberFormat('#,##0', 'es_CO').format(total)}'),
+                        Text('Método: $method'),
+                        Text('Cuotas: $cuot'),
+                        Text('Valor de la cuota: \$${cuotaValue.toStringAsFixed(0)}'),
+
+                        const Divider(height: 32),
+
+                        // Sección de resumen
+                        Text('📊 Resumen', style: Theme.of(context).textTheme.titleMedium),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Fecha del crédito: ${createdAt != null ? DateFormat('yyyy-MM-dd – kk:mm').format(createdAt) : 'N/A'}',
+                        ),
+                        Text(
+                          'Cierre de crédito: ${closedAt != null ? DateFormat('yyyy-MM-dd – kk:mm').format(closedAt) : 'N/A'}',
+                        ),
+
+                        // Sección de pagos
+                        Text('📆 Pagos', style: Theme.of(context).textTheme.titleMedium),
+                        const SizedBox(height: 8),
+
+                        if (payments.isEmpty) const Text('No hay registros de pagos'),
+
+                        ...payments.map((paymentDoc) {
+                          final payment = paymentDoc.data() as Map<String, dynamic>;
+                          final amount = (payment['amount'] ?? 0).toDouble();
+                          final date = (payment['date'] as Timestamp).toDate();
+                          final receipt = payment['receiptNumber'] ?? 'Sin recibo';
+                          final method = payment['paymentMethod'] ?? 'Efectivo';
+
+                          return Card(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            child: ListTile(
+                              title: Text('\$${NumberFormat('#,##0', 'es_CO').format(amount)}'),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('Fecha: ${DateFormat.yMd('es_CO').format(date)}'),
+                                  Text('Método: $method'),
+                                  Text('Recibo: $receipt'),
+                                ],
+                              ),
+                              trailing: Text(
+                                payment['isActive'] == true ? '✅' : '❌',
+                                style: const TextStyle(fontSize: 20),
+                              ),
+                            ),
+                          );
+                        }),
+                      ],
                     ),
-                    Text(
-                      'Cierre de credito: ${paid != null ? DateFormat('yyyy-MM-dd – kk:mm').format(paid) : 'N/A'}',
-                    ),
-                    Text('📆 Cuotas', style: Theme.of(context).textTheme.titleMedium),
-                    const SizedBox(height: 8),
-                    ...pays.map((entry) {
-                      final pago = entry.value;
-                      final amount = (pago['amount'] ?? 0).toDouble();
-                      final date = (pago['date'] as Timestamp).toDate();
-
-                      return ListTile(
-                        title: Text('Abono: \$${amount.toStringAsFixed(0)}'),
-                        subtitle: Text('Fecha: ${DateFormat.yMd('es_CO').format(date)}'),
-                      );
-                    }),
-                  ],
-                ),
-              ),
+                  ),
+                );
+              },
             );
           },
         );

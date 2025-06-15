@@ -16,6 +16,8 @@ import '../screens/roles/owner/routes/routes_screen.dart';
 import '../utils/app_theme.dart';
 import '../screens/roles/owner/member_ship_screen.dart';
 import '../screens/home_screen.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class MainScreen extends StatefulWidget {
   final String userRole;
@@ -60,6 +62,7 @@ class _MainScreenState extends State<MainScreen> {
   int _selectedIndex = 0;
   final UserService _userService = UserService();
   final AuthService _authService = AuthService();
+
   Map<String, dynamic>? _currentUserData;
   bool _isLoading = true;
 
@@ -69,44 +72,81 @@ class _MainScreenState extends State<MainScreen> {
     _loadUserData();
   }
 
-  Future<void> _loadUserData() async {
+  Future<String?> _getOfficeIdForCollector(String collectorUid) async {
     try {
-      if (mounted) {
-        setState(() => _isLoading = true);
+      // Buscar en TODAS las subcolecciones 'collectors' donde 'id' sea igual al UID del collector
+      final querySnapshot =
+          await FirebaseFirestore.instance
+              .collectionGroup('collectors')
+              .where('id', isEqualTo: collectorUid)
+              .limit(1)
+              .get();
+
+      if (querySnapshot.docs.isEmpty) {
+        debugPrint('No se encontró el cobrador en ninguna oficina');
+        return null;
       }
 
+      final collectorDoc = querySnapshot.docs.first;
+      final data = collectorDoc.data();
+
+      // ✅ Extraer directamente el campo officeId
+      final officeId = data['officeId'] as String?;
+      debugPrint('OfficeId encontrado: $officeId');
+
+      return officeId;
+    } catch (e) {
+      debugPrint('Error al buscar officeId: $e');
+      return null;
+    }
+  }
+
+  Future<void> _loadUserData() async {
+    try {
+      if (mounted) setState(() => _isLoading = true);
+
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser == null) return;
+
       debugPrint('Iniciando carga de datos del usuario...');
-      final userData = await _userService.getCurrentUserData();
-      debugPrint('Datos del usuario obtenidos: ${userData?.toString()}');
+
+      // 1. Obtener datos básicos del usuario
+      final userDoc =
+          await FirebaseFirestore.instance.collection('users').doc(currentUser.uid).get();
+
+      if (!userDoc.exists) {
+        throw Exception('Usuario no encontrado en Firestore');
+      }
+
+      final userData = userDoc.data() as Map<String, dynamic>;
+      userData['uid'] = currentUser.uid; // Asegurar que tenemos el UID
+
+      // 2. Si es collector, buscar su officeId
+      if (userData['role'] == 'collector') {
+        final officeId = await _getOfficeIdForCollector(currentUser.uid);
+        userData['officeId'] = officeId; // Agregar el officeId encontrado
+      }
+
+      debugPrint('Datos del usuario obtenidos: $userData');
 
       if (mounted) {
         setState(() {
           _currentUserData = userData;
           _isLoading = false;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Datos actualizados'), duration: Duration(seconds: 1)),
-        );
       }
-    } catch (e, stackTrace) {
+    } catch (e) {
       debugPrint('Error al cargar datos: $e');
-      debugPrint('Stack trace: $stackTrace');
-
-      if (mounted) {
-        setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error al actualizar: ${e.toString()}'),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 3),
-          ),
-        );
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
   List<Widget> _getScreensBasedOnRole() {
     if (_isLoading) return [const Center(child: CircularProgressIndicator())];
+
+    // Obtener userId y officeId una sola vez
+    final userId = _currentUserData?['uid'] as String? ?? '';
+    final officeId = _currentUserData?['officeId'] as String?;
 
     switch (_currentUserData?['role']) {
       case 'admin':
@@ -122,7 +162,14 @@ class _MainScreenState extends State<MainScreen> {
           const MembershipScreen(),
         ];
       case 'collector':
-        return [const CollectorHomeScreen(), const ClientsScreen(), const CobrosScreen()];
+        return [
+          const CollectorHomeScreen(),
+          const ClientsScreen(),
+          if (officeId != null)
+            CobrosScreen()
+          else
+            const Center(child: Text('No tiene oficina asignada')),
+        ];
       default:
         return [const HomeScreen()];
     }
@@ -206,7 +253,7 @@ class _MainScreenState extends State<MainScreen> {
     } else if (_currentUserData?['role'] == 'collector') {
       menuItems.addAll([
         ListTile(
-          leading: const Icon(Icons.payment),
+          leading: const Icon(Icons.group),
           title: const Text('Clientes'),
           selected: _selectedIndex == 1,
           selectedTileColor: Colors.blue[100],
@@ -214,7 +261,7 @@ class _MainScreenState extends State<MainScreen> {
         ),
         ListTile(
           leading: const Icon(Icons.payment),
-          title: const Text('Cobros'),
+          title: const Text('Creditos'),
           selected: _selectedIndex == 2,
           selectedTileColor: Colors.blue[100],
           onTap: () => _updateIndex(2, context),

@@ -159,7 +159,6 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
     }
   }
 
-  // 3. Mejora en registerCollector() para consistencia de datos:
   Future<void> registerCollector() async {
     if (!_formKey.currentState!.validate() || !mounted) return;
 
@@ -185,6 +184,7 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
         'displayName': _nameController.text.trim(),
         'email': _emailController.text.trim(),
         'role': 'collector',
+        'createdBy': currentUser.uid,
         'createdAt': FieldValue.serverTimestamp(),
       });
 
@@ -332,6 +332,70 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
         ),
       ),
     );
+  }
+
+  Future<void> _confirmDeleteCollector(Map<String, dynamic> collector) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Confirmar eliminación'),
+            content: Text(
+              '¿Estás seguro de eliminar a ${collector['name']}? Esta acción no se puede deshacer.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancelar'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Eliminar', style: TextStyle(color: Colors.red)),
+              ),
+            ],
+          ),
+    );
+
+    if (confirmed == true) {
+      await _deleteCollectorDocuments(collector); // Cambiado el nombre de la función
+    }
+  }
+
+  Future<void> _deleteCollectorDocuments(Map<String, dynamic> collector) async {
+    final currentUser = _auth.currentUser;
+    if (currentUser == null || ownerOfficeId == null) return;
+
+    try {
+      // 1. Eliminar el documento principal en 'users'
+      await _firestore.collection('users').doc(collector['id']).delete();
+
+      // 2. Eliminar el documento en la subcolección 'collectors'
+      await _firestore
+          .collection('users')
+          .doc(currentUser.uid)
+          .collection('offices')
+          .doc(ownerOfficeId)
+          .collection('collectors')
+          .doc(collector['id'])
+          .delete();
+
+      // 3. Actualizar la lista local
+      if (mounted) {
+        setState(() {
+          collectors.removeWhere((c) => c['id'] == collector['id']);
+        });
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('${collector['name']} eliminado correctamente')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error al eliminar: ${e.toString()}')));
+      }
+      debugPrint('Error al eliminar documentos: $e');
+    }
   }
 
   @override
@@ -535,6 +599,12 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
                                               );
                                             },
                                             child: const Text('Guardar'),
+                                          ),
+                                        ),
+                                        Expanded(
+                                          child: IconButton(
+                                            icon: Icon(Icons.delete, color: Colors.red),
+                                            onPressed: () => _confirmDeleteCollector(collector),
                                           ),
                                         ),
                                       ],

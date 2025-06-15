@@ -5,133 +5,146 @@ import 'package:intl/intl.dart';
 import 'credit_inactive_detail_screen.dart';
 
 class InactiveCreditsScreen extends StatefulWidget {
-  const InactiveCreditsScreen({super.key});
+  final String userId;
+  final String officeId;
+  final String? collectorId; // Nuevo parámetro opcional
+
+  const InactiveCreditsScreen({
+    super.key,
+    required this.userId,
+    required this.officeId,
+    this.collectorId,
+  });
 
   @override
-  State<InactiveCreditsScreen> createState() => _CobrosScreenState();
+  State<InactiveCreditsScreen> createState() => _InactiveCreditsScreenState();
 }
 
-class _CobrosScreenState extends State<InactiveCreditsScreen> {
+class _InactiveCreditsScreenState extends State<InactiveCreditsScreen> {
   final Map<String, int> orderMap = {};
   final Map<String, TextEditingController> controllers = {};
 
   @override
   void dispose() {
-    for (final controller in controllers.values) {
-      controller.dispose();
-    }
+    controllers.values.forEach((controller) => controller.dispose());
     super.dispose();
+  }
+
+  Widget _buildInfoRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: RichText(
+        text: TextSpan(
+          style: const TextStyle(color: Colors.black87, fontSize: 14),
+          children: [
+            TextSpan(text: '$label: ', style: const TextStyle(fontWeight: FontWeight.bold)),
+            TextSpan(text: value),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final currentUser = FirebaseAuth.instance.currentUser;
-    if (currentUser == null) {
-      return const Scaffold(body: Center(child: Text('Usuario no autenticado')));
-    }
-
-    final uid = currentUser.uid;
-
     return Scaffold(
-      appBar: AppBar(title: const Text('Mis Créditos Cerrados')),
-
+      appBar: AppBar(
+        title: const Text('Créditos Cerrados'),
+        actions: [IconButton(icon: const Icon(Icons.refresh), onPressed: () => setState(() {}))],
+      ),
       body: StreamBuilder<QuerySnapshot>(
         stream:
             FirebaseFirestore.instance
-                .collection('credits')
-                .where('createdBy', isEqualTo: uid)
-                .where('isActive', isEqualTo: false)
+                .collection('users')
+                .doc(widget.userId)
+                .collection('offices')
+                .doc(widget.officeId)
+                .collection('clients')
+                .where('createdBy', isEqualTo: widget.collectorId)
                 .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
+        builder: (context, clientsSnapshot) {
+          if (clientsSnapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return const Center(child: Text('No tienes créditos cerrados.'));
+
+          if (!clientsSnapshot.hasData || clientsSnapshot.data!.docs.isEmpty) {
+            return const Center(child: Text('No tienes clientes asignados'));
           }
 
-          final credits = snapshot.data!.docs;
-
-          for (var i = 0; i < credits.length; i++) {
-            final id = credits[i].id;
-            orderMap.putIfAbsent(id, () => i + 1);
-            controllers.putIfAbsent(
-              id,
-              () => TextEditingController(text: orderMap[id]!.toString()),
-            );
-          }
-
-          credits.sort((a, b) => orderMap[a.id]!.compareTo(orderMap[b.id]!));
+          final clientDocs = clientsSnapshot.data!.docs;
 
           return ListView.builder(
-            itemCount: credits.length,
-            itemBuilder: (context, index) {
-              final credit = credits[index];
-              final data = credit.data() as Map<String, dynamic>;
-              final createdAt = data['createdAt']?.toDate();
-              final creditValue = (data['credit'] as num).toDouble();
-              final interestPercent = (data['interest'] as num).toDouble();
+            itemCount: clientDocs.length,
+            itemBuilder: (context, clientIndex) {
+              final clientDoc = clientDocs[clientIndex];
+              final clientId = clientDoc.id;
+              final clientData = clientDoc.data() as Map<String, dynamic>;
+              final clientName = clientData['clientName'] ?? 'Sin nombre';
 
-              final clientId = data['clientId'];
-
-              String? dayDisplay;
-              if (data.containsKey('day')) {
-                final day = data['day'];
-                if (day is String) {
-                  dayDisplay = day;
-                } else if (day is int) {
-                  final daysOfWeek = [
-                    'Lunes',
-                    'Martes',
-                    'Miércoles',
-                    'Jueves',
-                    'Viernes',
-                    'Sábado',
-                    'Domingo',
-                  ];
-                  if (day >= 1 && day <= 7) dayDisplay = daysOfWeek[day - 1];
-                }
-              }
-
-              return FutureBuilder<DocumentSnapshot>(
-                future: FirebaseFirestore.instance.collection('clients').doc(clientId).get(),
-                builder: (context, clientSnapshot) {
-                  if (clientSnapshot.connectionState == ConnectionState.waiting) {
-                    return const ListTile(title: Text('Cargando cliente...'));
-                  }
-                  if (!clientSnapshot.hasData || !clientSnapshot.data!.exists) {
-                    return const ListTile(title: Text('Cliente no encontrado'));
+              return StreamBuilder<QuerySnapshot>(
+                stream:
+                    FirebaseFirestore.instance
+                        .collection('users')
+                        .doc(widget.userId)
+                        .collection('offices')
+                        .doc(widget.officeId)
+                        .collection('clients')
+                        .doc(clientId)
+                        .collection('credits')
+                        .where('isActive', isEqualTo: false)
+                        .snapshots(),
+                builder: (context, creditsSnapshot) {
+                  if (!creditsSnapshot.hasData || creditsSnapshot.data!.docs.isEmpty) {
+                    return Container(); // No mostrar clientes sin créditos inactivos
                   }
 
-                  final clientData = clientSnapshot.data!.data() as Map<String, dynamic>;
-                  final clientName = clientData['clientName'] ?? 'Sin nombre';
+                  final credits = creditsSnapshot.data!.docs;
 
-                  return Stack(
-                    children: [
-                      Card(
-                        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                        child: InkWell(
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => CreditInactiveDetailScreen(credit: credit),
+                  return Card(
+                    margin: const EdgeInsets.all(8),
+                    child: ExpansionTile(
+                      title: Text(clientName),
+                      subtitle: Text('${credits.length} crédito(s) cerrado(s)'),
+                      children:
+                          credits.map((creditDoc) {
+                            final creditData = creditDoc.data() as Map<String, dynamic>;
+                            final creditId = creditDoc.id;
+                            final creditAmount = (creditData['credit'] ?? 0).toDouble();
+                            final interest = (creditData['interest'] ?? 0).toDouble();
+                            final total = creditAmount + (creditAmount * interest / 100);
+                            final closedAt = creditData['closedAt']?.toDate();
+
+                            return ListTile(
+                              title: Text('Crédito: \$${NumberFormat('#,##0').format(total)}'),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('Capital: \$${NumberFormat('#,##0').format(creditAmount)}'),
+                                  Text('Interés: ${interest.toStringAsFixed(2)}%'),
+                                  if (closedAt != null)
+                                    Text('Cerrado: ${DateFormat('dd/MM/yyyy').format(closedAt)}'),
+                                ],
+                              ),
+                              trailing: IconButton(
+                                icon: const Icon(Icons.visibility),
+                                onPressed: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder:
+                                          (context) => CreditInactiveDetailScreen(
+                                            userId: widget.userId,
+                                            officeId: widget.officeId,
+                                            clientId: clientId,
+                                            creditId: creditId,
+                                          ),
+                                    ),
+                                  );
+                                },
                               ),
                             );
-                          },
-                          child: ListTile(
-                            title: Text('Cliente: $clientName'),
-                            subtitle: Text(
-                              'Crédito: \$${NumberFormat('#,##0', 'es_CO').format(creditValue)}\n'
-                              'Interés: ${interestPercent.toStringAsFixed(2)}%\n'
-                              'Forma de pago: ${data['method']}\n'
-                              '${dayDisplay != null ? 'Día: $dayDisplay\n' : ''}'
-                              'Fecha: ${createdAt != null ? DateFormat('yyyy-MM-dd – kk:mm').format(createdAt) : 'N/A'}',
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
+                          }).toList(),
+                    ),
                   );
                 },
               );
