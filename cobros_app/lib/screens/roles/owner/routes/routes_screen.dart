@@ -254,14 +254,39 @@ class _RoutesScreenState extends State<RoutesScreen> with OfficeVerificationMixi
                           child: InkWell(
                             borderRadius: BorderRadius.circular(12),
                             onTap: () {
+                              // 1. Verificar que currentUser no sea nulo
+                              final currentUser = FirebaseAuth.instance.currentUser;
+                              if (currentUser == null) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Usuario no autenticado')),
+                                );
+                                return;
+                              }
+
+                              // 2. Verificar que officeId no sea nulo
+                              if (officeId == null) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('No se ha configurado la oficina')),
+                                );
+                                return;
+                              }
+
+                              // 3. Asegurarse que collectorName está definido
+                              // (asumiendo que viene de algún lugar en tu código)
+                              final collectorName =
+                                  collector['name'] ?? 'Cobrador'; // Ajusta según tu estructura
+
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
                                   builder:
                                       (context) => CreditsRoutesScreen(
-                                        collectorId: collectorId,
-                                        collectorName: name,
-                                        officeId: officeId!,
+                                        collectorId:
+                                            collectorId, // Asegúrate que collectorId está definido
+                                        collectorName: collectorName,
+                                        userId: currentUser.uid,
+                                        officeId:
+                                            officeId!, // Usamos ! porque ya verificamos que no es nulo
                                       ),
                                 ),
                               );
