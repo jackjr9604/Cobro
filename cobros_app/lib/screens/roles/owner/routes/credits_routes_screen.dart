@@ -287,9 +287,18 @@ class CreditsRoutesScreen extends StatelessWidget {
   }
 
   void _navigateToPayDetails(BuildContext context, Map<String, dynamic> creditInfo) {
-    final clientId = creditInfo['clientId'] as String;
-    final creditId = creditInfo['creditId'] as String;
-    Navigator.push(context, MaterialPageRoute(builder: (context) => PaysDetails(credit: creditId)));
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder:
+            (context) => PaysDetails(
+              userId: userId,
+              officeId: officeId,
+              clientId: creditInfo['clientId'],
+              creditId: creditInfo['creditId'],
+            ),
+      ),
+    );
   }
 
   void _navigateToLiquidation(BuildContext context) {
