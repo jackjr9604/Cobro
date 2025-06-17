@@ -13,13 +13,13 @@ class CobrosScreen extends StatefulWidget {
 }
 
 class _CobrosScreenState extends State<CobrosScreen> {
-  final Map<String, int> orderMap = {};
   final Map<String, TextEditingController> controllers = {};
   late String _collectorUid;
   late String _ownerUid;
   late String _officeId;
   bool _isLoading = true;
-  List<QueryDocumentSnapshot> _clients = [];
+  List<Map<String, dynamic>> _activeCredits = [];
+  List<int> _creditOrder = []; // Lista para mantener el orden de los créditos
 
   @override
   void initState() {
@@ -45,7 +45,6 @@ class _CobrosScreenState extends State<CobrosScreen> {
 
       if (!collectorDoc.exists) return;
 
-      // Manejo seguro de createdBy
       _ownerUid = collectorDoc.data()?['createdBy'] ?? '';
       if (_ownerUid.isEmpty) return;
 
@@ -60,7 +59,7 @@ class _CobrosScreenState extends State<CobrosScreen> {
       if (officesQuery.docs.isEmpty) return;
 
       _officeId = officesQuery.docs.first.id;
-      await _loadClients();
+      await _loadActiveCredits();
     } catch (e) {
       debugPrint('Error loading initial data: $e');
     } finally {
@@ -68,7 +67,8 @@ class _CobrosScreenState extends State<CobrosScreen> {
     }
   }
 
-  Future<void> _loadClients() async {
+  // Primero verifica si el campo createdAt existe antes de ordenar
+  Future<void> _loadActiveCredits() async {
     try {
       final clientsQuery =
           await FirebaseFirestore.instance
@@ -80,21 +80,222 @@ class _CobrosScreenState extends State<CobrosScreen> {
               .where('createdBy', isEqualTo: _collectorUid)
               .get();
 
-      setState(() {
-        _clients = clientsQuery.docs;
-      });
+      List<Map<String, dynamic>> allActiveCredits = [];
+
+      for (final clientDoc in clientsQuery.docs) {
+        final clientId = clientDoc.id;
+        final clientData = clientDoc.data() as Map<String, dynamic>;
+
+        // Primero verificar si hay créditos con createdAt
+        final creditsQuery =
+            await FirebaseFirestore.instance
+                .collection('users')
+                .doc(_ownerUid)
+                .collection('offices')
+                .doc(_officeId)
+                .collection('clients')
+                .doc(clientId)
+                .collection('credits')
+                .where('isActive', isEqualTo: true)
+                .get();
+
+        // Si no hay resultados con orderBy, intentar sin él
+        if (creditsQuery.docs.isEmpty) {
+          continue;
+        }
+
+        // Verificar si los créditos tienen el campo createdAt
+        final firstCredit = creditsQuery.docs.first.data();
+        if (!firstCredit.containsKey('createdAt')) {
+          // Actualizar créditos existentes para agregar createdAt
+          final batch = FirebaseFirestore.instance.batch();
+          for (final doc in creditsQuery.docs) {
+            batch.update(doc.reference, {'createdAt': FieldValue.serverTimestamp()});
+          }
+          await batch.commit();
+        }
+
+        // Ahora hacer la consulta con orderBy
+        final orderedCreditsQuery =
+            await FirebaseFirestore.instance
+                .collection('users')
+                .doc(_ownerUid)
+                .collection('offices')
+                .doc(_officeId)
+                .collection('clients')
+                .doc(clientId)
+                .collection('credits')
+                .where('isActive', isEqualTo: true)
+                .orderBy('createdAt', descending: true)
+                .get();
+
+        for (final creditDoc in orderedCreditsQuery.docs) {
+          final creditData = creditDoc.data() as Map<String, dynamic>;
+          allActiveCredits.add({
+            ...creditData,
+            'creditId': creditDoc.id,
+            'clientId': clientId,
+            'clientName': clientData['clientName'] ?? 'Sin nombre',
+            'clientPhone': clientData['phone'] ?? 'Sin teléfono',
+          });
+        }
+      }
+
+      setState(() => _activeCredits = allActiveCredits);
     } catch (e) {
-      debugPrint('Error loading clients: $e');
+      debugPrint('Error loading credits: $e');
+      // Fallback a consulta sin ordenar si hay error
+      await _loadCreditsWithoutOrder();
     }
   }
 
-  Future<void> _registerPayment(
-    BuildContext context,
-    DocumentSnapshot creditDoc,
-    String clientId,
-  ) async {
-    final creditData = creditDoc.data() as Map<String, dynamic>;
-    final creditId = creditDoc.id;
+  // Método de fallback
+  Future<void> _loadCreditsWithoutOrder() async {
+    try {
+      final clientsQuery =
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(_ownerUid)
+              .collection('offices')
+              .doc(_officeId)
+              .collection('clients')
+              .where('createdBy', isEqualTo: _collectorUid)
+              .get();
+
+      List<Map<String, dynamic>> allActiveCredits = [];
+
+      for (final clientDoc in clientsQuery.docs) {
+        final clientId = clientDoc.id;
+        final clientData = clientDoc.data() as Map<String, dynamic>;
+
+        final creditsQuery =
+            await FirebaseFirestore.instance
+                .collection('users')
+                .doc(_ownerUid)
+                .collection('offices')
+                .doc(_officeId)
+                .collection('clients')
+                .doc(clientId)
+                .collection('credits')
+                .where('isActive', isEqualTo: true)
+                .get();
+
+        for (final creditDoc in creditsQuery.docs) {
+          final creditData = creditDoc.data() as Map<String, dynamic>;
+          allActiveCredits.add({
+            ...creditData,
+            'creditId': creditDoc.id,
+            'clientId': clientId,
+            'clientName': clientData['clientName'] ?? 'Sin nombre',
+            'clientPhone': clientData['phone'] ?? 'Sin teléfono',
+            'createdAt': creditData['createdAt'] ?? Timestamp.now(), // Valor por defecto
+          });
+        }
+      }
+
+      // Ordenar localmente por createdAt si está disponible
+      allActiveCredits.sort((a, b) {
+        final aDate = a['createdAt'] ?? Timestamp.now();
+        final bDate = b['createdAt'] ?? Timestamp.now();
+        return bDate.compareTo(aDate); // Orden descendente
+      });
+
+      setState(() => _activeCredits = allActiveCredits);
+    } catch (e) {
+      debugPrint('Error loading credits without order: $e');
+    }
+  }
+
+  // Función para actualizar el orden de los créditos
+  void _updateCreditOrder(int oldPosition, int newPosition) {
+    setState(() {
+      // Ajustar newPosition para que esté dentro de los límites
+      newPosition = newPosition.clamp(1, _activeCredits.length);
+
+      // Crear una copia de la lista original
+      final List<Map<String, dynamic>> reorderedCredits = List.from(_activeCredits);
+
+      // Mover el elemento a su nueva posición
+      final Map<String, dynamic> creditToMove = reorderedCredits.removeAt(oldPosition);
+      reorderedCredits.insert(newPosition - 1, creditToMove);
+
+      // Actualizar los números de orden
+      _creditOrder = List.generate(reorderedCredits.length, (index) => index + 1);
+
+      // Actualizar la lista principal
+      _activeCredits = reorderedCredits;
+    });
+  }
+
+  /// Widget para el indicador de orden editable
+  Widget _buildOrderIndicator(int index, BuildContext context) {
+    return GestureDetector(
+      onTap: () => _showEditOrderDialog(context, index),
+      child: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: Theme.of(context).primaryColor.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Theme.of(context).primaryColor, width: 1.5),
+        ),
+        child: Center(
+          child: Text(
+            (index + 1).toString(),
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Theme.of(context).primaryColor,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showEditOrderDialog(BuildContext context, int currentIndex) async {
+    final orderController = TextEditingController(text: (currentIndex + 1).toString());
+
+    await showDialog(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Cambiar orden'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('Actual orden: ${currentIndex + 1}'),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: orderController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Nuevo orden',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+              TextButton(
+                onPressed: () {
+                  final newOrder = int.tryParse(orderController.text);
+                  if (newOrder != null && newOrder >= 1 && newOrder <= _activeCredits.length) {
+                    _updateCreditOrder(currentIndex, newOrder);
+                  }
+                  Navigator.pop(context);
+                },
+                child: const Text('Guardar'),
+              ),
+            ],
+          ),
+    );
+  }
+
+  Future<void> _registerPayment(BuildContext context, Map<String, dynamic> creditData) async {
+    final creditId = creditData['creditId'];
+    final clientId = creditData['clientId'];
 
     // Cálculos correctos del crédito
     final creditAmount = (creditData['credit'] ?? 0).toDouble();
@@ -263,10 +464,9 @@ class _CobrosScreenState extends State<CobrosScreen> {
         await batch.commit();
 
         // Verificar si el crédito debe cerrarse (saldo <= 0)
-
         final newSaldo = saldoRestante - amount;
         if (newSaldo <= 0) {
-          await _closeCredit(creditDoc, clientId);
+          await _closeCredit(creditId, clientId);
           if (context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('¡Crédito pagado completamente y cerrado!')),
@@ -279,6 +479,9 @@ class _CobrosScreenState extends State<CobrosScreen> {
             ).showSnackBar(const SnackBar(content: Text('Pago registrado')));
           }
         }
+
+        // Recargar los créditos después del pago
+        await _loadActiveCredits();
       } catch (e) {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
@@ -287,43 +490,31 @@ class _CobrosScreenState extends State<CobrosScreen> {
     }
   }
 
-  Map<String, dynamic> _calculateOverdueInfo(Map<String, dynamic>? creditData) {
+  Map<String, dynamic> _calculateOverdueInfo(Map<String, dynamic> creditData) {
     final now = DateTime.now();
     int daysOverdue = 0;
     DateTime? nextPaymentDate;
 
-    if (creditData != null) {
-      try {
-        final paymentSchedule =
-            (creditData['paymentSchedule'] as List?)
-                ?.map((date) => date is Timestamp ? date.toDate() : DateTime.parse(date.toString()))
-                .toList() ??
-            [];
+    try {
+      final paymentSchedule =
+          (creditData['paymentSchedule'] as List?)
+              ?.map((date) => date is Timestamp ? date.toDate() : DateTime.parse(date.toString()))
+              .toList() ??
+          [];
 
-        final nextPaymentIndex = (creditData['nextPaymentIndex'] as int?) ?? 0;
+      final nextPaymentIndex = (creditData['nextPaymentIndex'] as int?) ?? 0;
 
-        if (nextPaymentIndex < paymentSchedule.length) {
-          nextPaymentDate = paymentSchedule[nextPaymentIndex];
-          if (nextPaymentDate != null && now.isAfter(nextPaymentDate)) {
-            daysOverdue = now.difference(nextPaymentDate).inDays;
-          }
+      if (nextPaymentIndex < paymentSchedule.length) {
+        nextPaymentDate = paymentSchedule[nextPaymentIndex];
+        if (nextPaymentDate != null && now.isAfter(nextPaymentDate)) {
+          daysOverdue = now.difference(nextPaymentDate).inDays;
         }
-      } catch (e) {
-        debugPrint('Error calculating overdue info: $e');
       }
+    } catch (e) {
+      debugPrint('Error calculating overdue info: $e');
     }
 
     return {'daysOverdue': daysOverdue, 'nextPaymentDate': nextPaymentDate};
-  }
-
-  // Método seguro para formatear números
-  String _formatNumber(dynamic value) {
-    try {
-      final number = value != null ? double.parse(value.toString()) : 0.0;
-      return NumberFormat('#,##0').format(number);
-    } catch (e) {
-      return '0';
-    }
   }
 
   Color? _getCardColor(int daysOverdue) {
@@ -333,9 +524,7 @@ class _CobrosScreenState extends State<CobrosScreen> {
     return null;
   }
 
-  Future<void> _closeCredit(DocumentSnapshot creditDoc, String clientId) async {
-    final creditId = creditDoc.id;
-
+  Future<void> _closeCredit(String creditId, String clientId) async {
     final batch = FirebaseFirestore.instance.batch();
 
     final creditRef = FirebaseFirestore.instance
@@ -353,9 +542,9 @@ class _CobrosScreenState extends State<CobrosScreen> {
       'status': 'completed',
       'closedAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
-      'createdBy': _collectorUid, // Usamos createdBy en lugar de collectorId
+      'createdBy': _collectorUid,
       'officeId': _officeId,
-      'clientId': clientId, // Guardamos referencia al cliente
+      'clientId': clientId,
     });
 
     final clientRef = FirebaseFirestore.instance
@@ -370,13 +559,18 @@ class _CobrosScreenState extends State<CobrosScreen> {
 
     try {
       await batch.commit();
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Crédito cerrado con éxito')));
+      await _loadActiveCredits(); // Recargar los créditos después de cerrar uno
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Crédito cerrado con éxito')));
+      }
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Error al cerrar crédito: $e')));
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error al cerrar crédito: $e')));
+      }
     }
   }
 
@@ -388,17 +582,12 @@ class _CobrosScreenState extends State<CobrosScreen> {
           Icon(Icons.credit_card_off, size: 64, color: Colors.grey[400]),
           const SizedBox(height: 16),
           Text(
-            'No tienes clientes asignados',
+            'No tienes créditos activos',
             style: TextStyle(fontSize: 18, color: Colors.grey[600]),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'O todos los créditos están inactivos',
-            style: TextStyle(fontSize: 14, color: Colors.grey[500]),
           ),
           const SizedBox(height: 16),
           ElevatedButton.icon(
-            onPressed: _loadClients,
+            onPressed: _loadActiveCredits,
             icon: const Icon(Icons.refresh),
             label: const Text('Intentar nuevamente'),
           ),
@@ -407,39 +596,7 @@ class _CobrosScreenState extends State<CobrosScreen> {
     );
   }
 
-  Widget _buildClientTile(
-    BuildContext context,
-    String name,
-    String phone, {
-    bool isLoading = false,
-  }) {
-    return ListTile(
-      leading: CircleAvatar(
-        backgroundColor: Theme.of(context).primaryColor,
-        child: Text(
-          name.substring(0, 1).toUpperCase(),
-          style: const TextStyle(color: Colors.white),
-        ),
-      ),
-      title: Text(name, style: const TextStyle(fontWeight: FontWeight.bold)),
-      subtitle: Text(phone),
-      trailing:
-          isLoading
-              ? const SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-              : null,
-    );
-  }
-
-  Future<void> _showCreditDetails(
-    BuildContext context,
-    DocumentSnapshot creditDoc,
-    String clientId,
-  ) async {
-    // Implementar navegación a pantalla de detalles
+  Future<void> _showCreditDetails(BuildContext context, Map<String, dynamic> creditData) async {
     await Navigator.push(
       context,
       MaterialPageRoute(
@@ -447,14 +604,13 @@ class _CobrosScreenState extends State<CobrosScreen> {
             (context) => CreditDetailScreen(
               userId: _ownerUid,
               officeId: _officeId,
-              clientId: clientId,
-              creditId: creditDoc.id,
+              clientId: creditData['clientId'],
+              creditId: creditData['creditId'],
             ),
       ),
     );
   }
 
-  // Método para navegar:
   void _navigateToInactiveCredits(BuildContext context) {
     Navigator.push(
       context,
@@ -463,7 +619,7 @@ class _CobrosScreenState extends State<CobrosScreen> {
             (context) => InactiveCreditsScreen(
               userId: _ownerUid,
               officeId: _officeId,
-              collectorId: _collectorUid, // Envía el ID del cobrador
+              collectorId: _collectorUid,
             ),
       ),
     );
@@ -479,7 +635,7 @@ class _CobrosScreenState extends State<CobrosScreen> {
             children: [
               const CircularProgressIndicator(),
               const SizedBox(height: 16),
-              Text('Cargando información...', style: Theme.of(context).textTheme.titleMedium),
+              Text('Cargando créditos...', style: Theme.of(context).textTheme.titleMedium),
             ],
           ),
         ),
@@ -498,151 +654,160 @@ class _CobrosScreenState extends State<CobrosScreen> {
         ],
       ),
       body:
-          _clients.isEmpty
+          _activeCredits.isEmpty
               ? _buildEmptyState()
               : RefreshIndicator(
-                onRefresh: _loadClients,
+                onRefresh: _loadActiveCredits,
                 child: ListView.builder(
                   padding: const EdgeInsets.all(8),
-                  itemCount: _clients.length,
+                  itemCount: _activeCredits.length,
                   itemBuilder: (context, index) {
-                    final clientDoc = _clients[index];
-                    final clientData = clientDoc.data() as Map<String, dynamic>;
-                    final clientId = clientDoc.id;
-                    final clientName = clientData['clientName'] ?? 'Sin nombre';
-                    final clientPhone = clientData['phone'] ?? 'Sin teléfono';
+                    final creditData = _activeCredits[index];
+                    final overdueInfo = _calculateOverdueInfo(creditData);
+                    final daysOverdue = overdueInfo['daysOverdue'] as int;
+
+                    final creditAmount = (creditData['credit'] ?? 0).toDouble();
+                    final interestPercent = (creditData['interest'] ?? 0).toDouble();
+                    final totalCreditValue = creditAmount + (creditAmount * interestPercent / 100);
+                    final totalPaid = (creditData['totalPaid'] ?? 0).toDouble();
+                    final remainingAmount = totalCreditValue - totalPaid;
 
                     return Card(
                       margin: const EdgeInsets.symmetric(vertical: 8),
                       elevation: 3,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      child: StreamBuilder<QuerySnapshot>(
-                        stream:
-                            FirebaseFirestore.instance
-                                .collection('users')
-                                .doc(_ownerUid)
-                                .collection('offices')
-                                .doc(_officeId)
-                                .collection('clients')
-                                .doc(clientId)
-                                .collection('credits')
-                                .where('isActive', isEqualTo: true)
-                                .snapshots(),
-                        builder: (context, creditsSnapshot) {
-                          if (!creditsSnapshot.hasData) {
-                            return _buildClientTile(
-                              context,
-                              clientName,
-                              clientPhone,
-                              isLoading: true,
-                            );
-                          }
-
-                          final credits = creditsSnapshot.data!.docs;
-                          if (credits.isEmpty) return Container();
-
-                          return ExpansionTile(
-                            leading: CircleAvatar(
-                              backgroundColor: Theme.of(context).primaryColor,
-                              child: Text(
-                                clientName.substring(0, 1).toUpperCase(),
-                                style: const TextStyle(color: Colors.white),
-                              ),
-                            ),
-                            title: Text(
-                              clientName,
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                            ),
-                            subtitle: Text(clientPhone),
-                            childrenPadding: const EdgeInsets.symmetric(horizontal: 16),
-                            expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
-                            children:
-                                credits.map((creditDoc) {
-                                  final creditData = creditDoc.data() as Map<String, dynamic>;
-                                  final creditId = creditDoc.id;
-                                  final overdueInfo = _calculateOverdueInfo(creditData);
-                                  final daysOverdue = overdueInfo['daysOverdue'] as int;
-
-                                  final nextPaymentDate =
-                                      overdueInfo['nextPaymentDate'] as DateTime?;
-
-                                  // Cálculo correcto del valor total del crédito
-                                  final creditAmount = (creditData['credit'] ?? 0).toDouble();
-                                  final interestPercent = (creditData['interest'] ?? 0).toDouble();
-                                  final totalCreditValue =
-                                      creditAmount + (creditAmount * interestPercent / 100);
-
-                                  // Cálculo del saldo restante (asumiendo que tienes un campo 'totalPaid')
-                                  final totalPaid = (creditData['totalPaid'] ?? 0).toDouble();
-                                  final remainingAmount = totalCreditValue - totalPaid;
-
-                                  return Container(
-                                    margin: const EdgeInsets.only(bottom: 8),
-                                    decoration: BoxDecoration(
-                                      color:
-                                          _getCardColor(daysOverdue)?.withOpacity(0.1) ??
-                                          Colors.grey[100],
-                                      borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(
-                                        color:
-                                            _getCardColor(daysOverdue)?.withOpacity(0.3) ??
-                                            Colors.grey[300]!,
+                      color: _getCardColor(daysOverdue)?.withOpacity(0.05),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: BorderSide(
+                          color: _getCardColor(daysOverdue)?.withOpacity(0.3) ?? Colors.grey[300]!,
+                        ),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Fila superior con el indicador de orden
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                // Información del cliente
+                                Expanded(
+                                  child: ListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    leading: CircleAvatar(
+                                      backgroundColor: Theme.of(context).primaryColor,
+                                      child: Text(
+                                        creditData['clientName'].substring(0, 1).toUpperCase(),
+                                        style: const TextStyle(color: Colors.white),
                                       ),
                                     ),
-                                    child: ListTile(
-                                      contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-                                      title: Text(
-                                        'Crédito: \$${NumberFormat('#,##0').format(totalCreditValue)}',
+                                    title: Text(
+                                      creditData['clientName'],
+                                      style: const TextStyle(fontWeight: FontWeight.bold),
+                                    ),
+                                    subtitle: Text(creditData['clientPhone']),
+                                  ),
+                                ),
+                                // Indicador de orden editable
+                                _buildOrderIndicator(index, context),
+                              ],
+                            ),
+
+                            const Divider(),
+
+                            // Información del crédito
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text(
+                                        'Valor crédito:',
+                                        style: TextStyle(color: Colors.grey[600]),
+                                      ),
+                                      Text(
+                                        '\$${NumberFormat('#,##0').format(totalCreditValue)}',
+                                        style: const TextStyle(fontWeight: FontWeight.bold),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text('Capital:', style: TextStyle(color: Colors.grey[600])),
+                                      Text('\$${NumberFormat('#,##0').format(creditAmount)}'),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text('Interés:', style: TextStyle(color: Colors.grey[600])),
+                                      Text('${interestPercent.toStringAsFixed(2)}%'),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text('Saldo:', style: TextStyle(color: Colors.grey[600])),
+                                      Text(
+                                        '\$${NumberFormat('#,##0').format(remainingAmount)}',
                                         style: TextStyle(
+                                          color: remainingAmount > 0 ? Colors.red : Colors.green,
                                           fontWeight: FontWeight.bold,
-                                          color: daysOverdue > 0 ? Colors.red : null,
                                         ),
                                       ),
-                                      subtitle: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            'Capital: \$${NumberFormat('#,##0').format(creditAmount)}',
+                                    ],
+                                  ),
+                                  if (daysOverdue > 0) ...[
+                                    const SizedBox(height: 4),
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text(
+                                          'Días en mora:',
+                                          style: TextStyle(color: Colors.grey[600]),
+                                        ),
+                                        Text(
+                                          '$daysOverdue días',
+                                          style: const TextStyle(
+                                            color: Colors.red,
+                                            fontWeight: FontWeight.bold,
                                           ),
-                                          Text('Interés: ${interestPercent.toStringAsFixed(2)}%'),
-                                          Text(
-                                            'Saldo: \$${NumberFormat('#,##0').format(remainingAmount)}',
-                                          ),
-                                          if (daysOverdue > 0)
-                                            Text(
-                                              'Días en mora: $daysOverdue',
-                                              style: const TextStyle(color: Colors.red),
-                                            ),
-                                        ],
-                                      ),
-                                      trailing: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          IconButton(
-                                            icon: const Icon(Icons.visibility),
-                                            color: Theme.of(context).primaryColor,
-                                            onPressed:
-                                                () => _showCreditDetails(
-                                                  context,
-                                                  creditDoc,
-                                                  clientId,
-                                                ),
-                                          ),
-                                          IconButton(
-                                            icon: const Icon(Icons.payment),
-                                            color: Colors.green,
-                                            onPressed:
-                                                () =>
-                                                    _registerPayment(context, creditDoc, clientId),
-                                            tooltip: 'Registrar pago',
-                                          ),
-                                        ],
-                                      ),
+                                        ),
+                                      ],
                                     ),
-                                  );
-                                }).toList(),
-                          );
-                        },
+                                  ],
+                                ],
+                              ),
+                            ),
+
+                            const Divider(),
+
+                            // Botones de acción
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceAround,
+                              children: [
+                                TextButton.icon(
+                                  icon: const Icon(Icons.visibility, size: 20),
+                                  label: const Text('Detalles'),
+                                  onPressed: () => _showCreditDetails(context, creditData),
+                                ),
+                                TextButton.icon(
+                                  icon: const Icon(Icons.payment, size: 20),
+                                  label: const Text('Pagar'),
+                                  onPressed: () => _registerPayment(context, creditData),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
                       ),
                     );
                   },

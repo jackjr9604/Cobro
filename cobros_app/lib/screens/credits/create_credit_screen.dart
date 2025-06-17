@@ -44,8 +44,7 @@ class _CreateCreditScreenState extends State<CreateCreditScreen> {
 
     switch (method) {
       case 'Diario':
-        for (int i = 1; i <= 30; i++) {
-          // 30 días como ejemplo
+        for (int i = 1; i <= _cuot; i++) {
           dates.add(startDate.add(Duration(days: i)));
         }
         break;
@@ -68,23 +67,20 @@ class _CreateCreditScreenState extends State<CreateCreditScreen> {
             nextDate = nextDate.add(const Duration(days: 1));
           }
 
-          for (int i = 0; i < 52; i++) {
-            // 52 semanas = 1 año
+          for (int i = 0; i < _cuot; i++) {
             dates.add(nextDate.add(Duration(days: i * 7)));
           }
         }
         break;
 
       case 'Quincenal':
-        for (int i = 1; i <= 24; i++) {
-          // 24 quincenas = 1 año
+        for (int i = 1; i <= _cuot; i++) {
           dates.add(startDate.add(Duration(days: i * 15)));
         }
         break;
 
       case 'Mensual':
-        for (int i = 1; i <= 12; i++) {
-          // 12 meses
+        for (int i = 1; i <= _cuot; i++) {
           // Añadir meses manteniendo el día (ajustando si el día no existe en el mes)
           final nextMonth = startDate.month + i;
           final year = startDate.year + (nextMonth ~/ 12);
@@ -139,11 +135,21 @@ class _CreateCreditScreenState extends State<CreateCreditScreen> {
         builder: (context) => const Center(child: CircularProgressIndicator()),
       );
 
-      // Obtener datos del cliente
+      // 1. Obtener el ownerId (el collector debe crear en la estructura del owner)
+      final userDoc = await FirebaseFirestore.instance.collection('users').doc(widget.userId).get();
+
+      // Verificación segura del rol
+      final userData = userDoc.data();
+      final ownerId =
+          (userData != null && userData['role'] == 'collector')
+              ? (userData['createdBy'] as String? ?? widget.userId)
+              : widget.userId;
+
+      // 2. Verificar que el cliente existe en la estructura del owner
       final clientDoc =
           await FirebaseFirestore.instance
               .collection('users')
-              .doc(widget.userId)
+              .doc(ownerId)
               .collection('offices')
               .doc(widget.officeId)
               .collection('clients')
@@ -151,25 +157,25 @@ class _CreateCreditScreenState extends State<CreateCreditScreen> {
               .get();
 
       if (!clientDoc.exists) {
-        throw Exception('Cliente no encontrado');
+        throw Exception('Cliente no encontrado en la oficina del propietario');
       }
 
       final clientData = clientDoc.data();
-      final clientCreatorUid = clientData?['createdBy'] ?? widget.userId;
+      final clientCreatorUid = clientData?['createdBy'] ?? ownerId;
 
-      // Generar ID simple para el crédito
+      // 3. Generar ID para el crédito
       final creditId = DateTime.now().millisecondsSinceEpoch.toString();
       final now = DateTime.now();
 
-      // Calcular fechas de pago
+      // 4. Calcular fechas de pago
       final paymentDates = _calculatePaymentDates(now, _method, _selectedDay);
       final paymentSchedule = paymentDates.map((date) => date.toIso8601String()).toList();
 
-      // Datos del crédito
+      // 5. Datos del crédito
       final creditData = {
         'clientId': widget.clientId,
         'officeId': widget.officeId,
-        'createdBy': clientCreatorUid,
+        'createdBy': widget.userId, // Guardamos quien creó el crédito
         'createdAt': Timestamp.now(),
         'credit': _credit,
         'interest': _interestPercent,
@@ -177,17 +183,17 @@ class _CreateCreditScreenState extends State<CreateCreditScreen> {
         'cuot': _cuot,
         'isActive': true,
         'paymentSchedule': paymentSchedule,
-        'nextPaymentIndex': 0, // Índice del próximo pago
-        'lastPaymentDate': null, // Se actualizará cuando se hagan pagos
-        'daysOverdue': 0, // Días en mora
-        'accumulatedInterest': 0.0, // Interés acumulado por mora
+        'nextPaymentIndex': 0,
+        'lastPaymentDate': null,
+        'daysOverdue': 0,
+        'accumulatedInterest': 0.0,
         if (_method == 'Semanal') 'day': _selectedDay,
       };
 
-      // Guardar el crédito
+      // 6. Guardar el crédito en la estructura del owner
       await FirebaseFirestore.instance
           .collection('users')
-          .doc(widget.userId)
+          .doc(ownerId)
           .collection('offices')
           .doc(widget.officeId)
           .collection('clients')
@@ -196,46 +202,26 @@ class _CreateCreditScreenState extends State<CreateCreditScreen> {
           .doc(creditId)
           .set(creditData);
 
-      // Obtener todos los créditos actuales del cliente
-      final creditsQuery =
-          await FirebaseFirestore.instance
-              .collection('users')
-              .doc(widget.userId)
-              .collection('offices')
-              .doc(widget.officeId)
-              .collection('clients')
-              .doc(widget.clientId)
-              .collection('credits')
-              .count()
-              .get();
-
-      // El número consecutivo será la cantidad de créditos + 1 (porque este aún no cuenta si se consulta antes)
-      final creditNumber = creditsQuery.count;
-
-      // Actualizar referencia en el cliente
+      // 7. Actualizar referencia en el cliente
       await FirebaseFirestore.instance
           .collection('users')
-          .doc(widget.userId)
+          .doc(ownerId)
           .collection('offices')
           .doc(widget.officeId)
           .collection('clients')
           .doc(widget.clientId)
-          .update({
-            'lastCreditId': creditId,
-            'lastCreditNumber': creditNumber,
-            'updatedAt': Timestamp.now(),
-          });
+          .update({'lastCreditId': creditId, 'updatedAt': Timestamp.now()});
 
-      // Cerrar diálogo de carga
+      // Cerrar diálogo de carga y mostrar éxito
       if (mounted) {
-        Navigator.pop(context); // Cerrar diálogo de carga
+        Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Crédito creado exitosamente'),
             backgroundColor: Colors.green,
           ),
         );
-        Navigator.pop(context); // Volver atrás
+        Navigator.pop(context);
       }
     } catch (e) {
       if (mounted) {

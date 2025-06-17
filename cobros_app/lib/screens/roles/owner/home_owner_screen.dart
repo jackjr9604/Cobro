@@ -26,11 +26,44 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
   double _collectedThisMonth = 0;
   bool _isLoading = true;
   double _dailyCollection = 0;
+  String? _officeId;
+  bool _isUserActive = false;
 
   @override
   void initState() {
     super.initState();
-    _loadDashboardData().then((_) => _calculateDailyCollection());
+    _checkUserStatus().then((_) {
+      if (_isUserActive) {
+        _loadDashboardData().then((_) => _calculateDailyCollection());
+      } else {
+        setState(() => _isLoading = false);
+      }
+    });
+  }
+
+  Future<void> _checkUserStatus() async {
+    final user = _auth.currentUser;
+    if (user == null) {
+      setState(() => _isUserActive = false);
+      return;
+    }
+
+    try {
+      final userDoc = await _firestore.collection('users').doc(user.uid).get();
+      if (!userDoc.exists) {
+        setState(() => _isUserActive = false);
+        return;
+      }
+
+      final userData = userDoc.data() as Map<String, dynamic>;
+      final activeStatus = userData['activeStatus'] as Map<String, dynamic>?;
+      final isActive = activeStatus?['isActive'] ?? false;
+
+      setState(() => _isUserActive = isActive);
+    } catch (e) {
+      debugPrint('Error checking user status: $e');
+      setState(() => _isUserActive = false);
+    }
   }
 
   Future<void> _loadDashboardData() async {
@@ -39,13 +72,19 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
     if (user == null) return;
 
     try {
-      // 1. Obtener datos del usuario (no solo officeId)
+      // 1. Obtener datos del usuario
       final userDoc = await _firestore.collection('users').doc(user.uid).get();
       final userData = userDoc.data();
-      if (userData == null) return;
+      if (userData == null) {
+        setState(() => _isLoading = false);
+        return;
+      }
 
-      final officeId = userData['officeId'];
-      if (officeId == null) {
+      // 2. Obtener la oficina del usuario
+      final officesQuery =
+          await _firestore.collection('users').doc(user.uid).collection('offices').limit(1).get();
+
+      if (officesQuery.docs.isEmpty) {
         setState(() {
           _isLoading = false;
           _officeData = null;
@@ -53,133 +92,194 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
         return;
       }
 
-      // 2. Obtener datos de la oficina y estado activo
-      final officeDoc = await _firestore.collection('offices').doc(officeId).get();
-      if (!officeDoc.exists) {
-        setState(() {
-          _isLoading = false;
-          _officeData = null;
-        });
-        return;
-      }
-
-      // Combinar datos del usuario y la oficina
+      final officeDoc = officesQuery.docs.first;
       setState(() {
+        _officeId = officeDoc.id;
         _officeData = officeDoc.data();
-        _officeData?['officeId'] = officeId;
-        _officeData?['userActiveStatus'] = userData['activeStatus']; // Estado activo del usuario
       });
 
-      // 2. Obtener cobradores activos
+      // 3. Obtener cobradores activos
       final collectorsQuery =
           await _firestore
               .collection('users')
-              .where('officeId', isEqualTo: officeId)
-              .where('role', isEqualTo: 'collector')
+              .doc(user.uid)
+              .collection('offices')
+              .doc(_officeId)
+              .collection('collectors')
               .where('activeStatus.isActive', isEqualTo: true)
               .get();
 
-      setState(
-        () =>
-            _collectors =
-                collectorsQuery.docs.map((doc) {
-                  final data = doc.data();
-                  data['id'] = doc.id;
-                  return data;
-                }).toList(),
-      );
+      setState(() {
+        _collectors =
+            collectorsQuery.docs.map((doc) {
+              final data = doc.data();
+              data['id'] = doc.id;
+              return data;
+            }).toList();
+      });
 
-      await _calculateDailyCollection();
+      // 4. Obtener todos los clientes de la oficina
+      final clientsQuery =
+          await _firestore
+              .collection('users')
+              .doc(user.uid)
+              .collection('offices')
+              .doc(_officeId)
+              .collection('clients')
+              .get();
 
-      // 3. Obtener liquidaciones recientes
+      double totalCollected = 0;
+      double activeCredits = 0;
+      double monthlyTotal = 0;
+
+      // Fechas para el cálculo mensual
       final now = DateTime.now();
       final firstDayOfMonth = DateTime(now.year, now.month, 1);
+      final firstDayNextMonth = DateTime(now.year, now.month + 1, 1);
 
+      // 5. Procesar cada cliente, sus créditos y pagos
+      for (var clientDoc in clientsQuery.docs) {
+        final creditsQuery = await clientDoc.reference.collection('credits').get();
+
+        for (var creditDoc in creditsQuery.docs) {
+          final creditData = creditDoc.data();
+
+          // Sumar créditos activos
+          if (creditData['isActive'] == true) {
+            activeCredits += (creditData['credit'] ?? 0).toDouble();
+          }
+
+          // Obtener todos los pagos de este crédito
+          final paymentsQuery = await creditDoc.reference.collection('payments').get();
+
+          for (var paymentDoc in paymentsQuery.docs) {
+            final paymentData = paymentDoc.data();
+            final amount = (paymentData['amount'] ?? 0).toDouble();
+
+            // Sumar al total general
+            totalCollected += amount;
+
+            // Sumar al total mensual si corresponde
+            final paymentDate = (paymentData['date'] as Timestamp).toDate();
+            if (paymentDate.isAfter(firstDayOfMonth) && paymentDate.isBefore(firstDayNextMonth)) {
+              monthlyTotal += amount;
+            }
+          }
+        }
+      }
+
+      // 6. Obtener liquidaciones recientes
       final liquidationsQuery =
           await _firestore
+              .collection('users')
+              .doc(user.uid)
+              .collection('offices')
+              .doc(_officeId)
               .collection('liquidations')
-              .where('officeId', isEqualTo: officeId)
-              .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(firstDayOfMonth))
               .orderBy('date', descending: true)
               .limit(5)
               .get();
 
-      setState(
-        () =>
-            _recentLiquidations =
-                liquidationsQuery.docs.map((doc) {
-                  final data = doc.data();
-                  data['id'] = doc.id;
-                  return data;
-                }).toList(),
-      );
+      // 7. Actualizar el estado con todos los datos
+      setState(() {
+        _collectedThisMonth = monthlyTotal;
+        _activeCredits = activeCredits;
+        _totalBalance = totalCollected;
+        _recentLiquidations =
+            liquidationsQuery.docs.map((doc) {
+              final data = doc.data();
+              data['id'] = doc.id;
+              return data;
+            }).toList();
+        _isLoading = false;
+      });
 
-      // 4. Calcular balances
-      try {
-        // ✅ Total balance (ya tienes officeDoc arriba)
-        final totalBalance = (_officeData?['totalBalance'] ?? 0).toDouble();
-
-        // ✅ Créditos activos (igual que antes)
-        double activeCredits = 0;
-        final creditsQuery =
-            await _firestore
-                .collection('credits')
-                .where('officeId', isEqualTo: officeId)
-                .where('isActive', isEqualTo: true)
-                .get();
-
-        for (var credit in creditsQuery.docs) {
-          final data = credit.data();
-          activeCredits += (data['credit'] ?? 0).toDouble();
-        }
-
-        // ✅ Recaudo mensual optimizado usando dailyCollections
-        final now = DateTime.now();
-        final monthKeyPrefix = '${now.year}-${now.month.toString().padLeft(2, '0')}';
-        final officeRef = _firestore.collection('offices').doc(officeId);
-
-        final monthlyQuery =
-            await officeRef
-                .collection('dailyCollections')
-                .where(FieldPath.documentId, isGreaterThanOrEqualTo: monthKeyPrefix)
-                .get();
-
-        double collectedThisMonth = monthlyQuery.docs.fold(
-          0,
-          (sum, doc) => sum + (doc.data()['total'] ?? 0).toDouble(),
-        );
-
-        setState(() {
-          _totalBalance = totalBalance;
-          _activeCredits = activeCredits;
-          _collectedThisMonth = collectedThisMonth;
-          _isLoading = false;
-        });
-      } catch (e) {
-        print('Error calculating balances: $e');
-        setState(() => _isLoading = false);
-      }
+      // 8. Calcular recaudo diario
+      await _calculateDailyCollection();
     } catch (e) {
-      print('Error loading dashboard data: $e');
+      debugPrint('Error loading dashboard data: $e');
       setState(() => _isLoading = false);
     }
   }
 
   Future<void> _calculateDailyCollection() async {
-    if (_officeData == null) return;
+    if (_officeId == null || _auth.currentUser == null) return;
 
-    final todayKey = DateFormat('yyyy-MM-dd').format(DateTime.now());
-    final doc =
-        await FirebaseFirestore.instance
-            .collection('offices')
-            .doc(_officeData!['officeId'])
-            .collection('dailyCollections')
-            .doc(todayKey)
-            .get();
+    final today = DateTime.now();
+    final todayStart = DateTime(today.year, today.month, today.day);
+    final todayEnd = todayStart.add(const Duration(days: 1));
 
-    setState(() {
-      _dailyCollection = (doc.data()?['total'] ?? 0).toDouble();
-    });
+    try {
+      double dailyTotal = 0;
+
+      // Obtener todos los clientes
+      final clientsQuery =
+          await _firestore
+              .collection('users')
+              .doc(_auth.currentUser!.uid)
+              .collection('offices')
+              .doc(_officeId)
+              .collection('clients')
+              .get();
+
+      // Procesar cada cliente
+      for (var clientDoc in clientsQuery.docs) {
+        final creditsQuery = await clientDoc.reference.collection('credits').get();
+
+        // Procesar cada crédito
+        for (var creditDoc in creditsQuery.docs) {
+          final paymentsQuery =
+              await creditDoc.reference
+                  .collection('payments')
+                  .where('date', isGreaterThanOrEqualTo: Timestamp.fromDate(todayStart))
+                  .where('date', isLessThan: Timestamp.fromDate(todayEnd))
+                  .get();
+
+          // Sumar los pagos de hoy
+          for (var paymentDoc in paymentsQuery.docs) {
+            final paymentData = paymentDoc.data();
+            dailyTotal += (paymentData['amount'] ?? 0).toDouble();
+          }
+        }
+      }
+
+      setState(() {
+        _dailyCollection = dailyTotal;
+      });
+
+      // Guardar para consultas futuras
+      final todayKey = DateFormat('yyyy-MM-dd').format(today);
+      await _firestore
+          .collection('users')
+          .doc(_auth.currentUser!.uid)
+          .collection('offices')
+          .doc(_officeId)
+          .collection('dailyCollections')
+          .doc(todayKey)
+          .set({
+            'total': dailyTotal,
+            'date': Timestamp.now(),
+            'officeId': _officeId,
+            'userId': _auth.currentUser!.uid,
+          }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('Error calculando recaudo diario: $e');
+      // Intentar obtener el valor guardado
+      final todayKey = DateFormat('yyyy-MM-dd').format(today);
+      final doc =
+          await _firestore
+              .collection('users')
+              .doc(_auth.currentUser!.uid)
+              .collection('offices')
+              .doc(_officeId)
+              .collection('dailyCollections')
+              .doc(todayKey)
+              .get();
+
+      setState(() {
+        _dailyCollection = (doc.data()?['total'] ?? 0).toDouble();
+      });
+    }
   }
 
   Widget _buildSummaryCard(String title, String value, IconData icon, Color color) {
@@ -229,16 +329,27 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
   }
 
   Widget _buildCollectorItem(Map<String, dynamic> collector) {
+    final isActive = collector['activeStatus']?['isActive'] ?? false;
+    final lastLiquidation = collector['lastLiquidationDate'] as Timestamp?;
+    final monthlyCollection = collector['monthlyCollection'] ?? 0;
+    final name = collector['name'] ?? 'Sin nombre';
+
     return ListTile(
-      leading: CircleAvatar(child: Text(collector['displayName']?[0] ?? '?')),
-      title: Text(collector['displayName'] ?? 'Sin nombre'),
+      leading: CircleAvatar(
+        backgroundColor: isActive ? Colors.green[100] : Colors.grey[200],
+        child: Text(name[0]),
+      ),
+      title: Text(name),
       subtitle: Text(
-        'Últ. liquidación: ${collector['lastLiquidationDate'] != null ? DateFormat('dd/MM/yy').format((collector['lastLiquidationDate'] as Timestamp).toDate()) : 'N/A'}',
+        lastLiquidation != null
+            ? 'Últ. liquidación: ${DateFormat('dd/MM/yy').format(lastLiquidation.toDate())}'
+            : 'Sin liquidaciones',
       ),
       trailing: Chip(
+        backgroundColor: isActive ? Colors.green[100] : Colors.grey[200],
         label: Text(
-          currencyFormat.format(collector['monthlyCollection'] ?? 0),
-          style: const TextStyle(fontSize: 12),
+          currencyFormat.format(monthlyCollection),
+          style: TextStyle(color: isActive ? Colors.green[800] : Colors.grey[600]),
         ),
       ),
     );
@@ -254,16 +365,22 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
             const Icon(Icons.business, size: 64, color: Colors.blue),
             const SizedBox(height: 20),
             Text(
-              'No tienes una oficina registrada',
+              'No se encontró oficina registrada',
               style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.grey[800]),
             ),
             const SizedBox(height: 16),
             Text(
-              'Para acceder al dashboard, primero necesitas crear una oficina.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 16, color: Colors.grey[600]),
+              'ID de usuario: ${_auth.currentUser?.uid ?? 'no logueado'}',
+              style: TextStyle(fontSize: 14, color: Colors.grey[600]),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Revisa la consola para más detalles',
+              style: TextStyle(fontSize: 14, color: Colors.grey[600]),
             ),
             const SizedBox(height: 24),
+            ElevatedButton(onPressed: _loadDashboardData, child: const Text('Reintentar')),
+            const SizedBox(height: 16),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
@@ -273,7 +390,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
                   context,
                   MaterialPageRoute(builder: (context) => const OfficeManagementScreen()),
                 );
-                _loadDashboardData(); // Forzar recarga al volver
+                _loadDashboardData();
               },
               child: const Text('Crear Oficina', style: TextStyle(fontSize: 18)),
             ),
@@ -327,13 +444,24 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
+    // 1. Verificar autenticación
+    if (_auth.currentUser == null) {
+      return const Center(child: Text('Usuario no autenticado'));
+    }
 
-    // Verificar si tiene oficina
-    if (_officeData == null || _officeData!['officeId'] == null) {
+    // 2. Verificar estado activo
+    if (!_isUserActive) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Dashboard')),
+        body: _buildInactiveAccountScreen(),
+      );
+    }
+
+    // 3. Verificar si tiene oficina
+    if (_officeData == null) {
       return Scaffold(
         appBar: AppBar(
-          title: Text(_officeData?['name'] ?? 'Dashboard'),
-
+          title: const Text('Dashboard'),
           actions: [
             IconButton(
               icon: const Icon(Icons.refresh, color: Colors.white),
@@ -342,25 +470,6 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
           ],
         ),
         body: _buildNoOfficeScreen(),
-      );
-    }
-
-    // Verificar estado activo CORREGIDO
-    final userActiveStatus = _officeData?['userActiveStatus'] as Map<String, dynamic>?;
-    final isActive = userActiveStatus?['isActive'] ?? false;
-
-    if (!isActive) {
-      return Scaffold(
-        appBar: AppBar(
-          title: Text(_officeData?['name'] ?? 'Dashboard'),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.refresh, color: Colors.white),
-              onPressed: _loadDashboardData,
-            ),
-          ],
-        ),
-        body: _buildInactiveAccountScreen(),
       );
     }
 

@@ -6,7 +6,12 @@ import 'dart:math' as math;
 import '../../../../utils/app_theme.dart';
 
 class LiquidationReportScreen extends StatefulWidget {
-  const LiquidationReportScreen({super.key});
+  final String officeId; // Añadir esta propiedad
+
+  const LiquidationReportScreen({
+    super.key,
+    required this.officeId, // Hacerla requerida
+  });
 
   @override
   State<LiquidationReportScreen> createState() => _LiquidationReportScreenState();
@@ -58,25 +63,16 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
     }
 
     try {
-      // 1. Obtener officeId del usuario
-      final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-
-      final userData = userDoc.data();
-      if (userData == null || userData['officeId'] == null) {
-        setState(() => _isLoading = false);
-        return;
-      }
-
-      final userOfficeId = userData['officeId'];
-
-      // 2. Construir consulta base
+      // 1. Construir consulta base con la nueva estructura
       Query query = FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
           .collection('offices')
-          .doc(userOfficeId)
+          .doc(widget.officeId)
           .collection('liquidations')
           .orderBy('date', descending: true);
 
-      // 3. Aplicar filtros de fecha si existen
+      // 2. Aplicar filtros de fecha si existen
       if (startDate != null && endDate != null) {
         final start = DateTime(startDate!.year, startDate!.month, startDate!.day);
         final end = DateTime(endDate!.year, endDate!.month, endDate!.day + 1);
@@ -85,7 +81,7 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
             .where('date', isLessThan: Timestamp.fromDate(end));
       }
 
-      // 4. Ejecutar consulta
+      // 3. Ejecutar consulta
       final snapshot = await query.get();
 
       setState(() {

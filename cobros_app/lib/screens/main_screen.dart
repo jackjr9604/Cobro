@@ -108,26 +108,33 @@ class _MainScreenState extends State<MainScreen> {
       final currentUser = FirebaseAuth.instance.currentUser;
       if (currentUser == null) return;
 
-      debugPrint('Iniciando carga de datos del usuario...');
-
-      // 1. Obtener datos básicos del usuario
       final userDoc =
           await FirebaseFirestore.instance.collection('users').doc(currentUser.uid).get();
-
-      if (!userDoc.exists) {
-        throw Exception('Usuario no encontrado en Firestore');
-      }
+      if (!userDoc.exists) throw Exception('Usuario no encontrado');
 
       final userData = userDoc.data() as Map<String, dynamic>;
-      userData['uid'] = currentUser.uid; // Asegurar que tenemos el UID
+      userData['uid'] = currentUser.uid;
 
-      // 2. Si es collector, buscar su officeId
-      if (userData['role'] == 'collector') {
-        final officeId = await _getOfficeIdForCollector(currentUser.uid);
-        userData['officeId'] = officeId; // Agregar el officeId encontrado
+      // Obtener officeId para owners y collectors
+      if (userData['role'] == 'owner' || userData['role'] == 'collector') {
+        if (userData['role'] == 'owner') {
+          // Para owners, buscar la oficina que crearon
+          final officeQuery =
+              await FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(currentUser.uid)
+                  .collection('offices')
+                  .limit(1)
+                  .get();
+
+          if (officeQuery.docs.isNotEmpty) {
+            userData['officeId'] = officeQuery.docs.first.id;
+          }
+        } else {
+          // Para collectors, usar el método existente
+          userData['officeId'] = await _getOfficeIdForCollector(currentUser.uid);
+        }
       }
-
-      debugPrint('Datos del usuario obtenidos: $userData');
 
       if (mounted) {
         setState(() {
@@ -144,7 +151,6 @@ class _MainScreenState extends State<MainScreen> {
   List<Widget> _getScreensBasedOnRole() {
     if (_isLoading) return [const Center(child: CircularProgressIndicator())];
 
-    // Obtener userId y officeId una sola vez
     final userId = _currentUserData?['uid'] as String? ?? '';
     final officeId = _currentUserData?['officeId'] as String?;
 
@@ -158,17 +164,18 @@ class _MainScreenState extends State<MainScreen> {
           const RegisterCollector(),
           const ClientsScreen(),
           const RoutesScreen(),
-          const LiquidationReportScreen(),
+          officeId != null
+              ? LiquidationReportScreen(officeId: officeId)
+              : const Center(child: Text('No tiene oficina asignada')),
           const MembershipScreen(),
         ];
       case 'collector':
         return [
           const CollectorHomeScreen(),
           const ClientsScreen(),
-          if (officeId != null)
-            CobrosScreen()
-          else
-            const Center(child: Text('No tiene oficina asignada')),
+          officeId != null
+              ? CobrosScreen()
+              : const Center(child: Text('No tiene oficina asignada')),
         ];
       default:
         return [const HomeScreen()];

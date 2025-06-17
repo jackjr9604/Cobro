@@ -36,12 +36,10 @@ class _ClientsScreenState extends State<ClientsScreen> with OfficeVerificationMi
       return;
     }
 
-    setState(() {
-      userId = user.uid;
-    });
+    setState(() => userId = user.uid);
 
     try {
-      // 1. Cargar datos del usuario
+      // 1. Obtener datos del usuario logueado
       final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
 
       if (!userDoc.exists) {
@@ -56,12 +54,55 @@ class _ClientsScreenState extends State<ClientsScreen> with OfficeVerificationMi
       userData = userDoc.data();
       userRole = userData?['role'] ?? '';
 
-      // 2. Verificar estado activo
-      final activeStatus = userData?['activeStatus'] as Map<String, dynamic>?;
-      final userIsActive = activeStatus?['isActive'] ?? false;
+      // Para collectors, necesitamos verificar si están asignados a una oficina
+      if (userRole == 'collector') {
+        final ownerId = userData?['createdBy'];
 
-      // 3. Buscar oficina solo si es owner
-      if (userRole == 'owner') {
+        if (ownerId == null || ownerId.isEmpty) {
+          setState(() {
+            hasOffice = false;
+            isActive = false;
+          });
+          return;
+        }
+
+        // Buscar en todas las oficinas del owner si este collector está asignado
+        final officesQuery = FirebaseFirestore.instance
+            .collection('users')
+            .doc(ownerId)
+            .collection('offices');
+
+        final officesSnapshot = await officesQuery.get();
+
+        // Variable para almacenar si encontramos al collector en alguna oficina
+        bool foundInOffice = false;
+        String? foundOfficeId;
+        bool isCollectorActive = false;
+
+        // Verificar cada oficina
+        for (final officeDoc in officesSnapshot.docs) {
+          final collectorDoc =
+              await officesQuery.doc(officeDoc.id).collection('collectors').doc(user.uid).get();
+
+          if (collectorDoc.exists) {
+            final collectorData = collectorDoc.data();
+            if (collectorData != null && collectorData['activeStatus']?['isActive'] == true) {
+              foundInOffice = true;
+              foundOfficeId = officeDoc.id;
+              isCollectorActive = true;
+              break; // Salir del bucle si encontramos una oficina válida
+            }
+          }
+        }
+
+        setState(() {
+          hasOffice = foundInOffice;
+          officeId = foundOfficeId;
+          isActive = isCollectorActive;
+        });
+      } else if (userRole == 'owner') {
+        // Lógica existente para owner
+        final isActiveStatus = userData?['activeStatus']?['isActive'] ?? false;
         final officeQuery =
             await FirebaseFirestore.instance
                 .collection('users')
@@ -72,20 +113,12 @@ class _ClientsScreenState extends State<ClientsScreen> with OfficeVerificationMi
 
         setState(() {
           hasOffice = officeQuery.docs.isNotEmpty;
-          officeId = hasOffice ? officeQuery.docs.first.id : null;
-          isActive = userIsActive;
-        });
-      } else {
-        // Para collectors, verificamos si tienen officeId asignado
-        final collectorOfficeId = userData?['officeId'];
-        setState(() {
-          hasOffice = collectorOfficeId != null;
-          officeId = collectorOfficeId;
-          isActive = userIsActive;
+          officeId = officeQuery.docs.isNotEmpty ? officeQuery.docs.first.id : null;
+          isActive = isActiveStatus;
         });
       }
     } catch (e) {
-      debugPrint('Error loading user data: $e');
+      debugPrint('Error loading office data: $e');
       setState(() {
         hasOffice = false;
         isActive = false;
@@ -105,22 +138,27 @@ class _ClientsScreenState extends State<ClientsScreen> with OfficeVerificationMi
             const Icon(Icons.error_outline, size: 64, color: Colors.orange),
             const SizedBox(height: 20),
             Text(
-              'Oficina no configurada',
+              userRole == 'collector'
+                  ? 'No estás asignado a una oficina'
+                  : 'Oficina no configurada',
               style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.grey[800]),
             ),
             const SizedBox(height: 16),
             Text(
-              'No tienes una oficina configurada o no está activa.',
+              userRole == 'collector'
+                  ? 'No tienes una oficina asignada actualmente. Contacta al administrador.'
+                  : 'No tienes una oficina configurada o no está activa.',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 16, color: Colors.grey[600]),
             ),
             const SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: () {
-                // Navegar a la pantalla de configuración de oficina
-              },
-              child: const Text('Configurar Oficina'),
-            ),
+            if (userRole == 'owner') // Solo mostrar botón para owners
+              ElevatedButton(
+                onPressed: () {
+                  // Navegar a la pantalla de configuración de oficina
+                },
+                child: const Text('Configurar Oficina'),
+              ),
           ],
         ),
       ),
@@ -128,28 +166,45 @@ class _ClientsScreenState extends State<ClientsScreen> with OfficeVerificationMi
   }
 
   Future<Query<Map<String, dynamic>>> getClientsQuery(User user) async {
-    if (officeId == null || userId == null) {
-      throw Exception('No office assigned');
-    }
+    try {
+      if (officeId == null) {
+        throw Exception('Office ID is null');
+      }
 
-    // Consulta para owners - todos los clientes de la oficina
-    if (userData?['role'] == 'owner') {
-      return FirebaseFirestore.instance
-          .collection('users')
-          .doc(userId)
-          .collection('offices')
-          .doc(officeId)
-          .collection('clients');
-    }
-    // Consulta para collectors - solo sus clientes asignados
-    else {
-      return FirebaseFirestore.instance
-          .collection('users')
-          .doc(userId)
-          .collection('offices')
-          .doc(officeId)
-          .collection('clients')
-          .where('assignedCollectorId', isEqualTo: user.uid);
+      if (userData == null) {
+        throw Exception('User data not loaded');
+      }
+
+      final role = userData!['role'];
+      final ownerId = userData!['createdBy'];
+
+      if (role == 'owner') {
+        return FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .collection('offices')
+            .doc(officeId)
+            .collection('clients')
+            .orderBy('clientName');
+      } else if (role == 'collector') {
+        if (ownerId == null || ownerId.isEmpty) {
+          throw Exception('Collector has no owner assigned');
+        }
+
+        return FirebaseFirestore.instance
+            .collection('users')
+            .doc(ownerId) // Usamos el ID del owner, no del collector
+            .collection('offices')
+            .doc(officeId)
+            .collection('clients')
+            .where('createdBy', isEqualTo: user.uid)
+            .orderBy('clientName');
+      } else {
+        throw Exception('Invalid user role: $role');
+      }
+    } catch (e) {
+      debugPrint('Error in getClientsQuery: $e');
+      rethrow;
     }
   }
 
@@ -329,7 +384,7 @@ class _ClientsScreenState extends State<ClientsScreen> with OfficeVerificationMi
           }
           if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
           final query = snapshot.data!;
-          return StreamBuilder(
+          return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
             stream: query.snapshots(),
             builder: (context, snapshot) {
               if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());

@@ -33,10 +33,12 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
   }
 
   Future<void> _loadClientData() async {
+    final ownerId = await _getOwnerId(_createdBy);
+
     final clientDoc =
         await FirebaseFirestore.instance
             .collection('users')
-            .doc(_createdBy)
+            .doc(ownerId)
             .collection('offices')
             .doc(widget.officeId)
             .collection('clients')
@@ -77,8 +79,12 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
 
         final clientId = widget.clientId ?? _generateClientId();
         final now = FieldValue.serverTimestamp();
+        final user = FirebaseAuth.instance.currentUser!;
 
-        // Preparar los datos en un mapa
+        // Obtener el ownerId (para collectors será el createdBy, para owners será su propio UID)
+        final ownerId = await _getOwnerId(user.uid);
+
+        // Preparar los datos del cliente
         final data = {
           'clientName': _clientName,
           'cc': _cc,
@@ -91,21 +97,13 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
           'createdAt': isEditing ? (widget.initialData?['createdAt'] ?? now) : now,
           'updatedAt': now,
           'officeId': widget.officeId,
+          'createdBy': user.uid, // Siempre guardamos quien creó el cliente
         };
 
-        // Obtener rol del usuario actual
-        final user = FirebaseAuth.instance.currentUser!;
-        final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-        final userRole = userDoc.data()?['role'];
-
-        // Agregar createdBy si no es owner
-        if (userRole != 'owner') {
-          data['createdBy'] = _createdBy;
-        }
-
+        // Referencia a la colección de clientes del OWNER
         final clientRef = FirebaseFirestore.instance
             .collection('users')
-            .doc(_createdBy)
+            .doc(ownerId)
             .collection('offices')
             .doc(widget.officeId)
             .collection('clients')
@@ -134,6 +132,33 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
     }
   }
 
+  // Método para obtener el ownerId (nuevo)
+  Future<String> _getOwnerId(String userId) async {
+    try {
+      final userDoc = await FirebaseFirestore.instance.collection('users').doc(userId).get();
+
+      if (!userDoc.exists) {
+        return userId; // Si el documento no existe, devolvemos el userId como fallback
+      }
+
+      final userData = userDoc.data();
+      if (userData == null) {
+        return userId; // Si data es null, devolvemos el userId como fallback
+      }
+
+      // Verificación segura del rol
+      final role = userData['role'] as String?;
+      if (role == 'collector') {
+        return userData['createdBy'] as String? ?? userId;
+      }
+
+      return userId; // Para owners o cualquier otro caso
+    } catch (e) {
+      debugPrint('Error obteniendo ownerId: $e');
+      return userId; // En caso de error, devolvemos el userId como fallback
+    }
+  }
+
   Future<void> _confirmDelete() async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -156,9 +181,11 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
 
     if (confirmed == true && mounted) {
       try {
+        final ownerId = await _getOwnerId(_createdBy);
+
         await FirebaseFirestore.instance
             .collection('users')
-            .doc(_createdBy)
+            .doc(ownerId)
             .collection('offices')
             .doc(widget.officeId)
             .collection('clients')
