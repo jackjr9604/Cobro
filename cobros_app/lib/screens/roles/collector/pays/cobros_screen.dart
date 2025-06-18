@@ -494,6 +494,9 @@ class _CobrosScreenState extends State<CobrosScreen> {
     final now = DateTime.now();
     int daysOverdue = 0;
     DateTime? nextPaymentDate;
+    int? nextPaymentIndex;
+    double? nextPaymentAmount;
+    String overdueStatus = 'al día';
 
     try {
       final paymentSchedule =
@@ -502,19 +505,134 @@ class _CobrosScreenState extends State<CobrosScreen> {
               .toList() ??
           [];
 
-      final nextPaymentIndex = (creditData['nextPaymentIndex'] as int?) ?? 0;
+      nextPaymentIndex = (creditData['nextPaymentIndex'] as int?) ?? 0;
+      final creditAmount = (creditData['credit'] ?? 0).toDouble();
+      final interestPercent = (creditData['interest'] ?? 0).toDouble();
+      final totalCreditValue = creditAmount + (creditAmount * interestPercent / 100);
+      final numberOfCuotas = (creditData['cuot'] ?? 1).toDouble();
+      nextPaymentAmount = totalCreditValue / numberOfCuotas;
 
       if (nextPaymentIndex < paymentSchedule.length) {
         nextPaymentDate = paymentSchedule[nextPaymentIndex];
-        if (nextPaymentDate != null && now.isAfter(nextPaymentDate)) {
-          daysOverdue = now.difference(nextPaymentDate).inDays;
+        if (nextPaymentDate != null) {
+          if (now.isAfter(nextPaymentDate)) {
+            daysOverdue = now.difference(nextPaymentDate).inDays;
+            overdueStatus = _getOverdueStatus(daysOverdue);
+          } else {
+            overdueStatus = 'próximo';
+          }
         }
       }
     } catch (e) {
       debugPrint('Error calculating overdue info: $e');
     }
 
-    return {'daysOverdue': daysOverdue, 'nextPaymentDate': nextPaymentDate};
+    return {
+      'daysOverdue': daysOverdue,
+      'nextPaymentDate': nextPaymentDate,
+      'nextPaymentIndex': nextPaymentIndex,
+      'nextPaymentAmount': nextPaymentAmount,
+      'status': overdueStatus,
+    };
+  }
+
+  String _getOverdueStatus(int daysOverdue) {
+    if (daysOverdue <= 0) return 'al día';
+    if (daysOverdue <= 7) return 'moroso leve';
+    if (daysOverdue <= 15) return 'moroso moderado';
+    if (daysOverdue <= 30) return 'moroso severo';
+    return 'moroso crítico';
+  }
+
+  Color _getStatusColor(String status) {
+    switch (status) {
+      case 'al día':
+        return Colors.green;
+      case 'próximo':
+        return Colors.blue;
+      case 'moroso leve':
+        return Colors.orange;
+      case 'moroso moderado':
+        return Colors.deepOrange;
+      case 'moroso severo':
+        return Colors.red;
+      case 'moroso crítico':
+        return Colors.red[900]!;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  Widget _buildOverdueIndicator(Map<String, dynamic> overdueInfo) {
+    final status = overdueInfo['status'];
+    final daysOverdue = overdueInfo['daysOverdue'];
+    final nextPaymentDate = overdueInfo['nextPaymentDate'];
+    final nextPaymentAmount = overdueInfo['nextPaymentAmount'];
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: _getStatusColor(status).withOpacity(0.1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: _getStatusColor(status), width: 1.5),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(_getStatusIcon(status), size: 16, color: _getStatusColor(status)),
+              const SizedBox(width: 6),
+              Text(
+                status.toUpperCase(),
+                style: TextStyle(fontWeight: FontWeight.bold, color: _getStatusColor(status)),
+              ),
+            ],
+          ),
+          if (daysOverdue > 0) ...[
+            const SizedBox(height: 4),
+            Text(
+              '$daysOverdue días',
+              style: TextStyle(fontSize: 12, color: _getStatusColor(status)),
+            ),
+          ],
+          if (nextPaymentDate != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              DateFormat('dd/MM/yy').format(nextPaymentDate),
+              style: TextStyle(fontSize: 10, color: _getStatusColor(status)),
+            ),
+          ],
+          if (nextPaymentAmount != null && status == 'próximo') ...[
+            const SizedBox(height: 4),
+            Text(
+              '\$${nextPaymentAmount.toStringAsFixed(0)}',
+              style: TextStyle(fontSize: 10, color: _getStatusColor(status)),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  IconData _getStatusIcon(String status) {
+    switch (status) {
+      case 'al día':
+        return Icons.check_circle;
+      case 'próximo':
+        return Icons.calendar_today;
+      case 'moroso leve':
+        return Icons.warning_amber;
+      case 'moroso moderado':
+        return Icons.warning;
+      case 'moroso severo':
+        return Icons.error;
+      case 'moroso crítico':
+        return Icons.dangerous;
+      default:
+        return Icons.help;
+    }
   }
 
   Color? _getCardColor(int daysOverdue) {
@@ -674,139 +792,151 @@ class _CobrosScreenState extends State<CobrosScreen> {
 
                     return Card(
                       margin: const EdgeInsets.symmetric(vertical: 8),
-                      elevation: 3,
-                      color: _getCardColor(daysOverdue)?.withOpacity(0.05),
+                      elevation: 2,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
-                        side: BorderSide(
-                          color: _getCardColor(daysOverdue)?.withOpacity(0.3) ?? Colors.grey[300]!,
-                        ),
+                        side: BorderSide(color: _getStatusColor(overdueInfo['status']), width: 2),
                       ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Fila superior con el indicador de orden
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                // Información del cliente
-                                Expanded(
-                                  child: ListTile(
-                                    contentPadding: EdgeInsets.zero,
-                                    leading: CircleAvatar(
-                                      backgroundColor: Theme.of(context).primaryColor,
-                                      child: Text(
-                                        creditData['clientName'].substring(0, 1).toUpperCase(),
-                                        style: const TextStyle(color: Colors.white),
-                                      ),
-                                    ),
-                                    title: Text(
-                                      creditData['clientName'],
-                                      style: const TextStyle(fontWeight: FontWeight.bold),
-                                    ),
-                                    subtitle: Text(creditData['clientPhone']),
-                                  ),
-                                ),
-                                // Indicador de orden editable
-                                _buildOrderIndicator(index, context),
-                              ],
-                            ),
-
-                            const Divider(),
-
-                            // Información del crédito
-                            Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 16),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          gradient: LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: [
+                              _getStatusColor(overdueInfo['status']).withOpacity(0.05),
+                              _getStatusColor(overdueInfo['status']).withOpacity(0.02),
+                            ],
+                          ),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Fila superior con el indicador de orden
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Text(
-                                        'Valor crédito:',
-                                        style: TextStyle(color: Colors.grey[600]),
-                                      ),
-                                      Text(
-                                        '\$${NumberFormat('#,##0').format(totalCreditValue)}',
-                                        style: const TextStyle(fontWeight: FontWeight.bold),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Text('Capital:', style: TextStyle(color: Colors.grey[600])),
-                                      Text('\$${NumberFormat('#,##0').format(creditAmount)}'),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Text('Interés:', style: TextStyle(color: Colors.grey[600])),
-                                      Text('${interestPercent.toStringAsFixed(2)}%'),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                    children: [
-                                      Text('Saldo:', style: TextStyle(color: Colors.grey[600])),
-                                      Text(
-                                        '\$${NumberFormat('#,##0').format(remainingAmount)}',
-                                        style: TextStyle(
-                                          color: remainingAmount > 0 ? Colors.red : Colors.green,
-                                          fontWeight: FontWeight.bold,
+                                  // Información del cliente
+                                  Expanded(
+                                    child: ListTile(
+                                      contentPadding: EdgeInsets.zero,
+                                      leading: CircleAvatar(
+                                        backgroundColor: _getStatusColor(overdueInfo['status']),
+                                        child: Text(
+                                          creditData['clientName'].substring(0, 1).toUpperCase(),
+                                          style: const TextStyle(color: Colors.white),
                                         ),
                                       ),
-                                    ],
+                                      title: Text(
+                                        creditData['clientName'],
+                                        style: const TextStyle(fontWeight: FontWeight.bold),
+                                      ),
+                                      subtitle: Text(creditData['clientPhone']),
+                                    ),
                                   ),
-                                  if (daysOverdue > 0) ...[
-                                    const SizedBox(height: 4),
+                                  // Indicador de orden editable
+                                  _buildOverdueIndicator(overdueInfo),
+                                  Padding(padding: const EdgeInsets.symmetric(horizontal: 16)),
+                                  _buildOrderIndicator(index, context),
+                                ],
+                              ),
+
+                              const Divider(),
+
+                              // Información del crédito
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 16),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
                                     Row(
                                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                       children: [
                                         Text(
-                                          'Días en mora:',
+                                          'Valor crédito:',
                                           style: TextStyle(color: Colors.grey[600]),
                                         ),
                                         Text(
-                                          '$daysOverdue días',
-                                          style: const TextStyle(
-                                            color: Colors.red,
+                                          '\$${NumberFormat('#,##0').format(totalCreditValue)}',
+                                          style: const TextStyle(fontWeight: FontWeight.bold),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text('Capital:', style: TextStyle(color: Colors.grey[600])),
+                                        Text('\$${NumberFormat('#,##0').format(creditAmount)}'),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text('Interés:', style: TextStyle(color: Colors.grey[600])),
+                                        Text('${interestPercent.toStringAsFixed(2)}%'),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Text('Saldo:', style: TextStyle(color: Colors.grey[600])),
+                                        Text(
+                                          '\$${NumberFormat('#,##0').format(remainingAmount)}',
+                                          style: TextStyle(
+                                            color: remainingAmount > 0 ? Colors.red : Colors.green,
                                             fontWeight: FontWeight.bold,
                                           ),
                                         ),
                                       ],
                                     ),
+                                    if (daysOverdue > 0) ...[
+                                      const SizedBox(height: 4),
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Text(
+                                            'Días en mora:',
+                                            style: TextStyle(color: Colors.grey[600]),
+                                          ),
+                                          Text(
+                                            '$daysOverdue días',
+                                            style: const TextStyle(
+                                              color: Colors.red,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
                                   ],
+                                ),
+                              ),
+
+                              const Divider(),
+
+                              // Botones de acción
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                                children: [
+                                  TextButton.icon(
+                                    icon: const Icon(Icons.visibility, size: 20),
+                                    label: const Text('Detalles'),
+                                    onPressed: () => _showCreditDetails(context, creditData),
+                                  ),
+                                  TextButton.icon(
+                                    icon: const Icon(Icons.payment, size: 20),
+                                    label: const Text('Pagar'),
+                                    onPressed: () => _registerPayment(context, creditData),
+                                  ),
                                 ],
                               ),
-                            ),
-
-                            const Divider(),
-
-                            // Botones de acción
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceAround,
-                              children: [
-                                TextButton.icon(
-                                  icon: const Icon(Icons.visibility, size: 20),
-                                  label: const Text('Detalles'),
-                                  onPressed: () => _showCreditDetails(context, creditData),
-                                ),
-                                TextButton.icon(
-                                  icon: const Icon(Icons.payment, size: 20),
-                                  label: const Text('Pagar'),
-                                  onPressed: () => _registerPayment(context, creditData),
-                                ),
-                              ],
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     );

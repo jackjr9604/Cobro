@@ -27,11 +27,14 @@ class _CollectorHomeScreenState extends State<CollectorHomeScreen> {
   DateTimeRange? _currentMonthRange;
   List<Map<String, dynamic>> _upcomingPayments = [];
   int _overduePaymentsCount = 0;
+  int _totalExpectedPaymentsToday = 0;
+  int _completedPaymentsToday = 0;
+  double _totalExpectedAmountToday = 0;
+  double _remainingAmountToday = 0;
 
   @override
   void initState() {
     super.initState();
-    // Calcular rangos de fecha
     final now = DateTime.now();
     _currentWeekRange = _getCurrentWeekRange(now);
     _currentMonthRange = _getCurrentMonthRange(now);
@@ -60,14 +63,12 @@ class _CollectorHomeScreenState extends State<CollectorHomeScreen> {
       final user = _auth.currentUser;
       if (user == null) throw Exception('Usuario no autenticado');
 
-      // 1. Obtener datos básicos del collector
       final userDoc = await _firestore.collection('users').doc(user.uid).get();
       if (!userDoc.exists) throw Exception('Usuario no encontrado');
 
       final userData = userDoc.data();
       _collectorName = userData?['displayName'] ?? 'Cobrador';
 
-      // 2. Buscar la oficina asignada (a través de los clients)
       final clientsSnapshot =
           await _firestore
               .collectionGroup('clients')
@@ -80,17 +81,12 @@ class _CollectorHomeScreenState extends State<CollectorHomeScreen> {
       }
 
       _officeId = clientsSnapshot.docs.first['officeId'];
-
-      // 3. Cargar datos de pagos
       await _loadPaymentsData(user.uid);
 
       setState(() {
         _isLoading = false;
       });
     } catch (e) {
-      debugPrint('Error en _loadCollectorData: $e'); // Mejor para Flutter
-      print('Error en _loadCollectorData: $e'); // Alternativa
-
       setState(() {
         _isLoading = false;
         _errorMessage = e.toString();
@@ -102,8 +98,12 @@ class _CollectorHomeScreenState extends State<CollectorHomeScreen> {
     final today = DateTime.now();
     final todayFormatted = DateFormat('yyyy-MM-dd').format(today);
 
+    // Resetear valores
     double todayTotal = 0;
     int todayCount = 0;
+    int totalExpected = 0;
+    int completedPayments = 0;
+    double totalExpectedAmount = 0;
     double weeklyTotal = 0;
     double monthlyTotal = 0;
     int overdueCount = 0;
@@ -116,6 +116,9 @@ class _CollectorHomeScreenState extends State<CollectorHomeScreen> {
             .where('createdBy', isEqualTo: collectorId)
             .get();
 
+    // Primero recolectar todos los pagos de hoy
+    final paymentsToday = <String, Map<String, dynamic>>{};
+
     for (final clientDoc in clientsQuery.docs) {
       final clientData = clientDoc.data();
       final creditsQuery =
@@ -124,51 +127,32 @@ class _CollectorHomeScreenState extends State<CollectorHomeScreen> {
       for (final creditDoc in creditsQuery.docs) {
         final creditData = creditDoc.data();
 
-        // 1. Procesar pagos existentes
+        // 1. Procesar pagos existentes de hoy
         final paymentsQuery =
             await creditDoc.reference
                 .collection('payments')
-                .orderBy('date', descending: true)
+                .where('date', isGreaterThanOrEqualTo: DateTime(today.year, today.month, today.day))
+                .where('date', isLessThan: DateTime(today.year, today.month, today.day + 1))
                 .get();
 
         for (final paymentDoc in paymentsQuery.docs) {
           final paymentData = paymentDoc.data();
-          final paymentDate =
-              paymentData['date'] is Timestamp
-                  ? (paymentData['date'] as Timestamp).toDate()
-                  : paymentData['date'] as DateTime;
-          final paymentDateFormatted = DateFormat('yyyy-MM-dd').format(paymentDate);
           final amount = (paymentData['amount'] as num).toDouble();
 
-          final paymentInfo = {
+          paymentsToday[creditDoc.id] = paymentData;
+          todayTotal += amount;
+          todayCount++;
+          completedPayments++;
+
+          recentPayments.add({
             ...paymentData,
             'clientName': clientData['clientName'],
-            'date': paymentDate,
+            'date': paymentData['date'].toDate(),
             'amount': amount,
-            'creditId': creditDoc.id,
-            'clientId': clientDoc.id,
-          };
-
-          recentPayments.add(paymentInfo);
-
-          // Cálculos de totales
-          if (paymentDateFormatted == todayFormatted) {
-            todayTotal += amount;
-            todayCount++;
-          }
-
-          if (_currentWeekRange!.start.isBefore(paymentDate) &&
-              _currentWeekRange!.end.isAfter(paymentDate)) {
-            weeklyTotal += amount;
-          }
-
-          if (_currentMonthRange!.start.isBefore(paymentDate) &&
-              _currentMonthRange!.end.isAfter(paymentDate)) {
-            monthlyTotal += amount;
-          }
+          });
         }
 
-        // 2. Buscar próximos vencimientos
+        // 2. Buscar próximos vencimientos (incluyendo los de hoy)
         if (creditData['paymentSchedule'] != null) {
           final paymentSchedule = List<String>.from(creditData['paymentSchedule']);
           final nextPaymentIndex = creditData['nextPaymentIndex'] ?? 0;
@@ -196,18 +180,56 @@ class _CollectorHomeScreenState extends State<CollectorHomeScreen> {
               if (daysUntilDue < 0) {
                 overdueCount++;
               }
+
+              // 3. Calcular pagos esperados para hoy (excluyendo los ya pagados)
+              final isDueToday = DateFormat('yyyy-MM-dd').format(nextPaymentDate) == todayFormatted;
+              if (isDueToday && !paymentsToday.containsKey(creditDoc.id)) {
+                totalExpected++;
+                totalExpectedAmount += paymentValue;
+              }
             }
+          }
+        }
+
+        // 4. Calcular totales semanales y mensuales (pagos existentes)
+        final allPaymentsQuery =
+            await creditDoc.reference
+                .collection('payments')
+                .orderBy('date', descending: true)
+                .limit(30)
+                .get();
+
+        for (final paymentDoc in allPaymentsQuery.docs) {
+          final paymentData = paymentDoc.data();
+          final paymentDate = paymentData['date'].toDate();
+          final amount = (paymentData['amount'] as num).toDouble();
+
+          if (_currentWeekRange!.start.isBefore(paymentDate) &&
+              _currentWeekRange!.end.isAfter(paymentDate)) {
+            weeklyTotal += amount;
+          }
+
+          if (_currentMonthRange!.start.isBefore(paymentDate) &&
+              _currentMonthRange!.end.isAfter(paymentDate)) {
+            monthlyTotal += amount;
           }
         }
       }
     }
 
-    // Ordenar vencimientos: primero los vencidos, luego los más próximos
+    // Calcular montos pendientes
+    final remainingAmount =
+        totalExpectedAmount - todayTotal > 0 ? (totalExpectedAmount - todayTotal).toDouble() : 0.0;
+
+    // Ordenar vencimientos
     upcomingPayments.sort((a, b) {
       if (a['isOverdue'] && !b['isOverdue']) return -1;
       if (!a['isOverdue'] && b['isOverdue']) return 1;
       return a['daysUntilDue'].compareTo(b['daysUntilDue']);
     });
+
+    // Ordenar pagos recientes
+    recentPayments.sort((a, b) => b['date'].compareTo(a['date']));
 
     setState(() {
       _todayTotal = todayTotal;
@@ -217,12 +239,121 @@ class _CollectorHomeScreenState extends State<CollectorHomeScreen> {
       _recentPayments = recentPayments.take(10).toList();
       _upcomingPayments = upcomingPayments;
       _overduePaymentsCount = overdueCount;
+      _totalExpectedPaymentsToday = totalExpected;
+      _completedPaymentsToday = completedPayments;
+      _totalExpectedAmountToday = totalExpectedAmount + todayTotal;
+      _remainingAmountToday = remainingAmount;
     });
   }
 
-  Widget _buildUpcomingPaymentsSection() {
-    if (_upcomingPayments.isEmpty) return const SizedBox.shrink();
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(_collectorName != null ? 'Cobros de $_collectorName' : 'Mis Cobros'),
+        actions: [
+          if (_overduePaymentsCount > 0)
+            Padding(
+              padding: const EdgeInsets.only(right: 8.0),
+              child: Badge(
+                label: Text('$_overduePaymentsCount'),
+                backgroundColor: Colors.red,
+                child: const Icon(Icons.warning, color: Colors.white),
+              ),
+            ),
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _loadCollectorData),
+        ],
+      ),
+      body:
+          _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : _errorMessage != null
+              ? Center(child: Text(_errorMessage!))
+              : _buildMainContent(),
+    );
+  }
 
+  Widget _buildMainContent() {
+    return SingleChildScrollView(
+      child: Column(
+        children: [
+          _buildSummarySection(),
+          if (_upcomingPayments.isNotEmpty) _buildUpcomingPaymentsSection(),
+          _buildRecentPaymentsSection(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSummarySection() {
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Card(
+        elevation: 4,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            children: [
+              const Text(
+                'Resumen Financiero',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _buildSummaryItem('Hoy', _todayTotal, Icons.today, Colors.blue),
+                  _buildSummaryItem('Semana', _weeklyTotal, Icons.calendar_view_week, Colors.green),
+                  _buildSummaryItem('Mes', _monthlyTotal, Icons.calendar_today, Colors.orange),
+                ],
+              ),
+              const SizedBox(height: 16),
+              _buildDailyStatsSection(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDailyStatsSection() {
+    return Column(
+      children: [
+        const Text(
+          'Detalle de Cobros Hoy',
+          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 8),
+        _buildPaymentStatsRow(
+          'Cobros realizados',
+          '$_completedPaymentsToday/${_totalExpectedPaymentsToday + _completedPaymentsToday}',
+          _completedPaymentsToday >= _totalExpectedPaymentsToday ? Colors.green : Colors.blue,
+        ),
+        const SizedBox(height: 4),
+        _buildPaymentStatsRow(
+          'Dinero recolectado',
+          '\$${_todayTotal.toStringAsFixed(2)} de \$${_totalExpectedAmountToday.toStringAsFixed(2)}',
+          _todayTotal >= _totalExpectedAmountToday ? Colors.green : Colors.blue,
+        ),
+        const SizedBox(height: 4),
+        if (_remainingAmountToday > 0)
+          _buildPaymentStatsRow(
+            'Faltante por cobrar',
+            '\$${_remainingAmountToday.toStringAsFixed(2)}',
+            Colors.orange,
+          ),
+        const SizedBox(height: 8),
+        LinearProgressIndicator(
+          value: _totalExpectedAmountToday > 0 ? _todayTotal / _totalExpectedAmountToday : 0,
+          backgroundColor: Colors.grey[200],
+          color: _todayTotal >= _totalExpectedAmountToday ? Colors.green : Colors.blue,
+        ),
+      ],
+    );
+  }
+
+  Widget _buildUpcomingPaymentsSection() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -239,17 +370,15 @@ class _CollectorHomeScreenState extends State<CollectorHomeScreen> {
               ),
               if (_overduePaymentsCount > 0)
                 Chip(
-                  label: Text(
-                    '$_overduePaymentsCount vencidos',
-                    style: const TextStyle(color: Colors.white),
-                  ),
+                  label: Text('$_overduePaymentsCount vencidos'),
                   backgroundColor: Colors.red,
+                  labelStyle: const TextStyle(color: Colors.white),
                 ),
             ],
           ),
         ),
         SizedBox(
-          height: 160, // Altura fija para el carrusel
+          height: 160,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.only(left: 16.0, right: 8.0),
@@ -257,7 +386,7 @@ class _CollectorHomeScreenState extends State<CollectorHomeScreen> {
             itemBuilder: (context, index) {
               final payment = _upcomingPayments[index];
               return Container(
-                width: 300, // Ancho fijo para cada tarjeta
+                width: 300,
                 margin: const EdgeInsets.only(right: 8.0),
                 child: _buildUpcomingPaymentCard(payment),
               );
@@ -268,23 +397,79 @@ class _CollectorHomeScreenState extends State<CollectorHomeScreen> {
     );
   }
 
-  Widget _buildPageIndicator() {
-    if (_upcomingPayments.length <= 1) return const SizedBox.shrink();
-
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: List<Widget>.generate(
-        _upcomingPayments.length,
-        (index) => Container(
-          width: 8.0,
-          height: 8.0,
-          margin: const EdgeInsets.symmetric(horizontal: 4.0),
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: index == 0 ? Colors.blue : Colors.grey[300],
+  Widget _buildRecentPaymentsSection() {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Últimos Cobros',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+              ),
+              TextButton(
+                onPressed: () {}, // Implementar navegación si es necesario
+                child: const Text('Ver todos'),
+              ),
+            ],
           ),
         ),
-      ),
+        _recentPayments.isEmpty
+            ? _buildEmptyPaymentsState()
+            : ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(8.0),
+              itemCount: _recentPayments.length,
+              itemBuilder: (context, index) {
+                final payment = _recentPayments[index];
+                return _buildPaymentCard(payment);
+              },
+            ),
+      ],
+    );
+  }
+
+  Widget _buildSummaryItem(String label, double value, IconData icon, Color color) {
+    final formatter = NumberFormat.currency(symbol: '\$', decimalDigits: 0);
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
+          child: Icon(icon, color: color),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          formatter.format(value),
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+      ],
+    );
+  }
+
+  Widget _buildPaymentStatsRow(String label, String value, Color color) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 14)),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Text(
+            value,
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: color),
+          ),
+        ),
+      ],
     );
   }
 
@@ -365,229 +550,6 @@ class _CollectorHomeScreenState extends State<CollectorHomeScreen> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(_collectorName != null ? 'Cobros de $_collectorName' : 'Mis Cobros'),
-        actions: [
-          if (_overduePaymentsCount > 0)
-            Padding(
-              padding: const EdgeInsets.only(right: 8.0),
-              child: Badge(
-                label: Text('$_overduePaymentsCount'),
-                backgroundColor: Colors.red,
-                child: const Icon(Icons.warning, color: Colors.white),
-              ),
-            ),
-          IconButton(icon: const Icon(Icons.refresh), onPressed: _loadCollectorData),
-        ],
-      ),
-      body:
-          _isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : _errorMessage != null
-              ? Center(child: Text(_errorMessage!))
-              : _buildMainContent(),
-    );
-  }
-
-  Widget _buildMainContent() {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return SingleChildScrollView(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(minHeight: constraints.maxHeight),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _buildSummarySection(),
-                if (_upcomingPayments.isNotEmpty) _buildUpcomingPaymentsSection(),
-                _buildRecentPaymentsSection(),
-                // Espacio adicional al final si es necesario
-                SizedBox(height: MediaQuery.of(context).padding.bottom),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildSummarySection() {
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: Card(
-        elevation: 4,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'Resumen Financiero',
-                    style: Theme.of(
-                      context,
-                    ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-                  ),
-                  _buildPeriodSelector(),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  _buildSummaryItem('Hoy', _todayTotal, Icons.today, Colors.blue),
-                  _buildSummaryItem('Semana', _weeklyTotal, Icons.calendar_view_week, Colors.green),
-                  _buildSummaryItem('Mes', _monthlyTotal, Icons.calendar_today, Colors.orange),
-                ],
-              ),
-              const SizedBox(height: 16),
-              _buildAdditionalStats(),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildRecentPaymentsSection() {
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Últimos Cobros',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
-              ),
-              TextButton(
-                onPressed: () => _showAllPayments(context),
-                child: const Text('Ver todos'),
-              ),
-            ],
-          ),
-        ),
-        _recentPayments.isEmpty
-            ? _buildEmptyPaymentsState()
-            : ListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(8.0),
-              itemCount: _recentPayments.length,
-              itemBuilder: (context, index) {
-                final payment = _recentPayments[index];
-                return _buildPaymentCard(payment);
-              },
-            ),
-      ],
-    );
-  }
-
-  Widget _buildEmptyPaymentsState() {
-    return Container(
-      height: 150,
-      alignment: Alignment.center,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.payment, size: 50, color: Colors.grey[400]),
-          const SizedBox(height: 16),
-          const Text('No hay cobros recientes', style: TextStyle(fontSize: 16, color: Colors.grey)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPeriodSelector() {
-    return PopupMenuButton<String>(
-      icon: const Icon(Icons.calendar_month),
-      itemBuilder:
-          (context) => [
-            const PopupMenuItem(value: 'day', child: Text('Ver por día')),
-            const PopupMenuItem(value: 'week', child: Text('Ver por semana')),
-            const PopupMenuItem(value: 'month', child: Text('Ver por mes')),
-          ],
-      onSelected: (value) {
-        // Implementar cambio de período si es necesario
-      },
-    );
-  }
-
-  Widget _buildSummaryItem(String label, double value, IconData icon, Color color) {
-    final formatter = NumberFormat.currency(symbol: '\$', decimalDigits: 0);
-
-    return Column(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
-          child: Icon(icon, color: color),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          formatter.format(value),
-          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-        ),
-        Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-      ],
-    );
-  }
-
-  Widget _buildAdditionalStats() {
-    final now = DateTime.now();
-    final weekProgress = (_currentWeekRange!.end.difference(now).inDays / 7);
-    final monthProgress = now.day / _currentMonthRange!.end.day;
-
-    return Column(
-      children: [
-        // Progreso de la semana
-        _buildProgressIndicator(
-          'Progreso semanal',
-          weekProgress,
-          '${7 - _currentWeekRange!.end.difference(now).inDays} de 7 días',
-        ),
-
-        const SizedBox(height: 8),
-
-        // Progreso del mes
-        _buildProgressIndicator(
-          'Progreso mensual',
-          monthProgress,
-          'Día ${now.day} de ${_currentMonthRange!.end.day}',
-        ),
-      ],
-    );
-  }
-
-  Widget _buildProgressIndicator(String label, double progress, String info) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(label, style: const TextStyle(fontSize: 12)),
-            Text(info, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-          ],
-        ),
-        const SizedBox(height: 4),
-        LinearProgressIndicator(
-          value: progress,
-          backgroundColor: Colors.grey[200],
-          color: Colors.blue,
-        ),
-      ],
-    );
-  }
-
   Widget _buildPaymentCard(Map<String, dynamic> payment) {
     final paymentDate =
         payment['date'] is Timestamp
@@ -595,8 +557,7 @@ class _CollectorHomeScreenState extends State<CollectorHomeScreen> {
             : payment['date'] as DateTime;
     return Card(
       elevation: 2,
-      margin: EdgeInsets.zero,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: Padding(
         padding: const EdgeInsets.all(12),
         child: Row(
@@ -656,30 +617,18 @@ class _CollectorHomeScreenState extends State<CollectorHomeScreen> {
     );
   }
 
-  Widget _buildEmptyState() {
-    return Center(
+  Widget _buildEmptyPaymentsState() {
+    return Container(
+      height: 150,
+      alignment: Alignment.center,
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.payment, size: 60, color: Colors.grey[400]),
+          Icon(Icons.payment, size: 50, color: Colors.grey[400]),
           const SizedBox(height: 16),
-          const Text(
-            'No hay cobros registrados',
-            style: TextStyle(fontSize: 18, color: Colors.grey),
-          ),
-          const SizedBox(height: 8),
-          ElevatedButton(onPressed: _loadCollectorData, child: const Text('Recargar')),
+          const Text('No hay cobros recientes', style: TextStyle(fontSize: 16, color: Colors.grey)),
         ],
       ),
     );
-  }
-
-  Future<void> _showAllPayments(BuildContext context) async {
-    // Implementar navegación a pantalla completa de pagos
-  }
-
-  int _countActiveClients() {
-    // Implementar lógica para contar clientes activos
-    return 0;
   }
 }
