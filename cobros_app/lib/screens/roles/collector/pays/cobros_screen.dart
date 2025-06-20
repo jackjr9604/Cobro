@@ -293,17 +293,16 @@ class _CobrosScreenState extends State<CobrosScreen> {
     );
   }
 
+  // Reemplaza tu función _registerPayment con esta versión modificada
   Future<void> _registerPayment(BuildContext context, Map<String, dynamic> creditData) async {
     final creditId = creditData['creditId'];
     final clientId = creditData['clientId'];
 
-    // Cálculos correctos del crédito
+    // Cálculos del crédito
     final creditAmount = (creditData['credit'] ?? 0).toDouble();
     final interestPercent = (creditData['interest'] ?? 0).toDouble();
     final totalCreditValue = creditAmount + (creditAmount * interestPercent / 100);
     final numberOfCuotas = (creditData['cuot'] ?? 1).toDouble();
-
-    // Cálculo del valor del abono según la fórmula ((credit*interest/100)+credit)/cuot
     final valorAbonoDefault =
         ((creditAmount * interestPercent / 100) + creditAmount) / numberOfCuotas;
 
@@ -346,11 +345,19 @@ class _CobrosScreenState extends State<CobrosScreen> {
                     children: [
                       Text(
                         'Saldo restante: \$${NumberFormat('#,##0', 'es_CO').format(saldoRestante)}',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: saldoRestante <= 0 ? Colors.green : Colors.black,
+                        ),
                       ),
+                      const SizedBox(height: 12),
                       TextField(
                         controller: controller,
                         keyboardType: TextInputType.number,
-                        decoration: const InputDecoration(labelText: 'Valor del abono'),
+                        decoration: const InputDecoration(
+                          labelText: 'Valor del abono',
+                          border: OutlineInputBorder(),
+                        ),
                       ),
                       const SizedBox(height: 12),
                       Row(
@@ -382,6 +389,17 @@ class _CobrosScreenState extends State<CobrosScreen> {
                         ],
                       ),
                       Text('Fecha: ${DateFormat('yyyy-MM-dd').format(selectedDate)}'),
+                      if (saldoRestante <= 0) ...[
+                        const SizedBox(height: 12),
+                        const Text(
+                          'Crédito pagado completamente',
+                          style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold),
+                        ),
+                        const Text(
+                          'Puedes cerrarlo manualmente cuando todos los pagos estén liquidados',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                      ],
                     ],
                   ),
                   actions: [
@@ -389,7 +407,7 @@ class _CobrosScreenState extends State<CobrosScreen> {
                       onPressed: () => Navigator.pop(context, false),
                       child: const Text('Cancelar'),
                     ),
-                    TextButton(
+                    ElevatedButton(
                       onPressed: () async {
                         final amount = double.tryParse(controller.text);
                         if (amount == null || amount <= 0) {
@@ -398,7 +416,7 @@ class _CobrosScreenState extends State<CobrosScreen> {
                           ).showSnackBar(const SnackBar(content: Text('Valor inválido')));
                           return;
                         }
-                        if (amount > saldoRestante) {
+                        if (amount > saldoRestante && saldoRestante > 0) {
                           ScaffoldMessenger.of(
                             context,
                           ).showSnackBar(const SnackBar(content: Text('El pago excede el saldo')));
@@ -434,7 +452,7 @@ class _CobrosScreenState extends State<CobrosScreen> {
       batch.set(paymentRef, {
         'amount': amount,
         'date': Timestamp.fromDate(selectedDate),
-        'isActive': true,
+        'isActive': true, // Se marca como activo inicialmente
         'timestamp': FieldValue.serverTimestamp(),
         'collectorId': _collectorUid,
         'paymentMethod': 'Efectivo',
@@ -460,31 +478,173 @@ class _CobrosScreenState extends State<CobrosScreen> {
         'totalPaid': FieldValue.increment(amount),
       });
 
+      // En tu función _registerPayment, modifica la parte final:
       try {
         await batch.commit();
-
-        // Verificar si el crédito debe cerrarse (saldo <= 0)
-        final newSaldo = saldoRestante - amount;
-        if (newSaldo <= 0) {
-          await _closeCredit(creditId, clientId);
-          if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('¡Crédito pagado completamente y cerrado!')),
-            );
-          }
-        } else {
-          if (context.mounted) {
-            ScaffoldMessenger.of(
-              context,
-            ).showSnackBar(const SnackBar(content: Text('Pago registrado')));
-          }
+        if (context.mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('Pago registrado correctamente')));
         }
 
         // Recargar los créditos después del pago
         await _loadActiveCredits();
       } catch (e) {
         if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Error al registrar pago: $e')));
+        }
+      }
+    }
+  }
+
+  // Agrega esta nueva función para verificar si se puede cerrar el crédito
+  Future<bool> _canCloseCredit(String creditId, String clientId) async {
+    try {
+      // Verificar que no haya pagos activos
+      final paymentsQuery =
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(_ownerUid)
+              .collection('offices')
+              .doc(_officeId)
+              .collection('clients')
+              .doc(clientId)
+              .collection('credits')
+              .doc(creditId)
+              .collection('payments')
+              .where('isActive', isEqualTo: true)
+              .limit(1)
+              .get();
+
+      return paymentsQuery.docs.isEmpty;
+    } catch (e) {
+      debugPrint('Error verificando cierre de crédito: $e');
+      return false;
+    }
+  }
+
+  // Modifica la función _closeCredit para verificar antes de cerrar
+  Future<void> _closeCredit(String creditId, String clientId) async {
+    final canClose = await _canCloseCredit(creditId, clientId);
+    if (!canClose) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No se puede cerrar el crédito. Asegúrate que:')),
+        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('1. El saldo esté en cero')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('2. Todos los pagos estén liquidados')));
+      }
+      return;
+    }
+
+    final batch = FirebaseFirestore.instance.batch();
+
+    final creditRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(_ownerUid)
+        .collection('offices')
+        .doc(_officeId)
+        .collection('clients')
+        .doc(clientId)
+        .collection('credits')
+        .doc(creditId);
+
+    batch.update(creditRef, {
+      'isActive': false,
+      'status': 'completed',
+      'closedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+      'closedBy': _collectorUid,
+    });
+
+    final clientRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(_ownerUid)
+        .collection('offices')
+        .doc(_officeId)
+        .collection('clients')
+        .doc(clientId);
+
+    batch.update(clientRef, {'updatedAt': FieldValue.serverTimestamp()});
+
+    try {
+      await batch.commit();
+      await _loadActiveCredits();
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Crédito cerrado con éxito')));
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error al cerrar crédito: $e')));
+      }
+    }
+  }
+
+  // Agrega esta función para liquidar pagos
+  Future<void> _liquidatePayment(
+    BuildContext context,
+    String creditId,
+    String clientId,
+    String paymentId,
+  ) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Liquidar Pago'),
+            content: const Text('¿Estás seguro de marcar este pago como liquidado?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancelar'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Liquidar'),
+              ),
+            ],
+          ),
+    );
+
+    if (confirm == true) {
+      try {
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(_ownerUid)
+            .collection('offices')
+            .doc(_officeId)
+            .collection('clients')
+            .doc(clientId)
+            .collection('credits')
+            .doc(creditId)
+            .collection('payments')
+            .doc(paymentId)
+            .update({
+              'isActive': false,
+              'liquidatedAt': FieldValue.serverTimestamp(),
+              'liquidatedBy': _collectorUid,
+            });
+
+        if (context.mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('Pago liquidado correctamente')));
+        }
+      } catch (e) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Error al liquidar pago: $e')));
         }
       }
     }
@@ -640,56 +800,6 @@ class _CobrosScreenState extends State<CobrosScreen> {
     if (daysOverdue > 15) return Colors.red[600];
     if (daysOverdue > 0) return Colors.red[300];
     return null;
-  }
-
-  Future<void> _closeCredit(String creditId, String clientId) async {
-    final batch = FirebaseFirestore.instance.batch();
-
-    final creditRef = FirebaseFirestore.instance
-        .collection('users')
-        .doc(_ownerUid)
-        .collection('offices')
-        .doc(_officeId)
-        .collection('clients')
-        .doc(clientId)
-        .collection('credits')
-        .doc(creditId);
-
-    batch.update(creditRef, {
-      'isActive': false,
-      'status': 'completed',
-      'closedAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-      'createdBy': _collectorUid,
-      'officeId': _officeId,
-      'clientId': clientId,
-    });
-
-    final clientRef = FirebaseFirestore.instance
-        .collection('users')
-        .doc(_ownerUid)
-        .collection('offices')
-        .doc(_officeId)
-        .collection('clients')
-        .doc(clientId);
-
-    batch.update(clientRef, {'updatedAt': FieldValue.serverTimestamp()});
-
-    try {
-      await batch.commit();
-      await _loadActiveCredits(); // Recargar los créditos después de cerrar uno
-      if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Crédito cerrado con éxito')));
-      }
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error al cerrar crédito: $e')));
-      }
-    }
   }
 
   Widget _buildEmptyState() {
@@ -919,7 +1029,7 @@ class _CobrosScreenState extends State<CobrosScreen> {
 
                               const Divider(),
 
-                              // Botones de acción
+                              // Modifica la sección de botones en tu ListTile del crédito:
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                                 children: [
@@ -928,11 +1038,43 @@ class _CobrosScreenState extends State<CobrosScreen> {
                                     label: const Text('Detalles'),
                                     onPressed: () => _showCreditDetails(context, creditData),
                                   ),
-                                  TextButton.icon(
-                                    icon: const Icon(Icons.payment, size: 20),
-                                    label: const Text('Pagar'),
-                                    onPressed: () => _registerPayment(context, creditData),
-                                  ),
+                                  if (remainingAmount <= 0)
+                                    FutureBuilder<bool>(
+                                      future: _canCloseCredit(
+                                        creditData['creditId'],
+                                        creditData['clientId'],
+                                      ),
+                                      builder: (context, snapshot) {
+                                        if (snapshot.connectionState == ConnectionState.waiting) {
+                                          return const CircularProgressIndicator();
+                                        }
+                                        if (snapshot.data == true) {
+                                          return TextButton.icon(
+                                            icon: const Icon(Icons.lock, size: 20),
+                                            label: const Text('Cerrar Crédito'),
+                                            onPressed:
+                                                () => _closeCredit(
+                                                  creditData['creditId'],
+                                                  creditData['clientId'],
+                                                ),
+                                          );
+                                        }
+                                        return TextButton.icon(
+                                          icon: const Icon(Icons.payment, size: 20),
+                                          label: const Text('Pagar'),
+                                          onPressed: null, // Botón desactivado
+                                          style: TextButton.styleFrom(
+                                            foregroundColor: Colors.grey, // Color de texto gris
+                                          ),
+                                        );
+                                      },
+                                    )
+                                  else
+                                    TextButton.icon(
+                                      icon: const Icon(Icons.payment, size: 20),
+                                      label: const Text('Pagar'),
+                                      onPressed: () => _registerPayment(context, creditData),
+                                    ),
                                 ],
                               ),
                             ],

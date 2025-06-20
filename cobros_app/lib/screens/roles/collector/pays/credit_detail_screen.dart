@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:path/path.dart';
 
 class CreditDetailScreen extends StatelessWidget {
   final String userId;
@@ -18,7 +19,6 @@ class CreditDetailScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Referencia al crédito en la nueva estructura
     final creditRef = FirebaseFirestore.instance
         .collection('users')
         .doc(userId)
@@ -46,7 +46,6 @@ class CreditDetailScreen extends StatelessWidget {
         final cuota = total / cuot;
 
         return StreamBuilder<QuerySnapshot>(
-          // Consulta a la subcolección de pagos
           stream: creditRef.collection('payments').orderBy('date').snapshots(),
           builder: (context, paymentsSnapshot) {
             if (!paymentsSnapshot.hasData) {
@@ -76,7 +75,7 @@ class CreditDetailScreen extends StatelessWidget {
 
             if (lastPaymentDate != null) {
               proximaCuota = lastPaymentDate.add(Duration(days: diasEntreCuotas));
-              final fechaFinal = proximaCuota.add(
+              fechaFinal = proximaCuota.add(
                 Duration(days: (cuotasRestantes - 1) * diasEntreCuotas),
               );
             }
@@ -99,44 +98,61 @@ class CreditDetailScreen extends StatelessWidget {
                 final client = clientSnapshot.data!.data() as Map<String, dynamic>;
 
                 return Scaffold(
-                  appBar: AppBar(title: const Text('Detalle del Crédito')),
+                  appBar: AppBar(
+                    title: const Text('Detalle del Crédito'),
+                    centerTitle: true,
+                    elevation: 0,
+                  ),
                   body: SingleChildScrollView(
                     padding: const EdgeInsets.all(16),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         // Sección de datos del cliente
-                        Text(
-                          '📋 Datos del Cliente',
-                          style: Theme.of(context).textTheme.titleMedium,
+                        _buildSectionHeader(context, '📋 Datos del Cliente'),
+                        _buildInfoCard(
+                          children: [
+                            _buildInfoRow('Nombre', client['clientName']),
+                            _buildInfoRow('Celular', client['cellphone']),
+                            if (client['refAlias'] != null)
+                              _buildInfoRow('Ref/Alias', client['refAlias']),
+                            if (client['address'] != null)
+                              _buildInfoRow('Dirección', client['address']),
+                          ],
                         ),
-                        const SizedBox(height: 8),
-                        Text('Nombre: ${client['clientName']}'),
-                        Text('Celular: ${client['cellphone']}'),
-                        if (client['refAlias'] != null) Text('Ref/Alias: ${client['refAlias']}'),
-                        if (client['address'] != null) Text('Dirección: ${client['address']}'),
-                        const Divider(height: 32),
+
+                        const SizedBox(height: 20),
 
                         // Sección de datos del crédito
-                        Text(
-                          '💰 Datos del Crédito',
-                          style: Theme.of(context).textTheme.titleMedium,
+                        _buildSectionHeader(context, '💰 Datos del Crédito'),
+                        _buildInfoCard(
+                          children: [
+                            _buildInfoRow(
+                              'Valor',
+                              '\$${NumberFormat('#,##0', 'es_CO').format(creditValue)}',
+                              isAmount: true,
+                            ),
+                            _buildInfoRow('Interés', '${interest.toStringAsFixed(2)}%'),
+                            _buildInfoRow(
+                              'Total a pagar',
+                              '\$${NumberFormat('#,##0', 'es_CO').format(total)}',
+                              isAmount: true,
+                            ),
+                            _buildInfoRow('Método', method),
+                            _buildInfoRow('Cuotas', '$cuot'),
+                            _buildInfoRow(
+                              'Valor de la cuota',
+                              '\$${cuota.toStringAsFixed(0)}',
+                              isAmount: true,
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 8),
-                        Text('Valor: \$${NumberFormat('#,##0', 'es_CO').format(creditValue)}'),
-                        Text('Interés: ${interest.toStringAsFixed(2)}%'),
-                        Text('Total a pagar: \$${NumberFormat('#,##0', 'es_CO').format(total)}'),
-                        Text('Método: $method'),
-                        Text('Cuotas: $cuot'),
-                        Text('Valor de la cuota: \$${cuota.toStringAsFixed(0)}'),
-                        const Divider(height: 32),
+
+                        const SizedBox(height: 20),
 
                         // Sección de pagos
-                        Text(
-                          '📆 Cuotas Pagadas ($cuotasPagadas)',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                        const SizedBox(height: 8),
+                        _buildSectionHeader(context, '📆 Cuotas Pagadas ($cuotasPagadas/${cuot})'),
+                        if (payments.isEmpty) _buildEmptyState('No hay pagos registrados'),
                         ...payments.map((paymentDoc) {
                           final payment = paymentDoc.data() as Map<String, dynamic>;
                           final amount = (payment['amount'] ?? 0).toDouble();
@@ -144,64 +160,128 @@ class CreditDetailScreen extends StatelessWidget {
                           final isActive = payment['isActive'] ?? true;
                           final paymentId = paymentDoc.id;
 
-                          return ListTile(
-                            leading: Icon(
-                              Icons.check_circle,
-                              color: isActive ? Colors.green : Colors.grey,
+                          return Card(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            child: ListTile(
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 8,
+                              ),
+                              leading: Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color:
+                                      isActive
+                                          ? Colors.green.withOpacity(0.2)
+                                          : Colors.grey.withOpacity(0.2),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Icon(
+                                  isActive ? Icons.check_circle : Icons.remove_circle,
+                                  color: isActive ? Colors.green : Colors.grey,
+                                ),
+                              ),
+                              title: Text(
+                                '\$${amount.toStringAsFixed(0)}',
+                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                              ),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    DateFormat.yMMMMd('es_CO').format(date),
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                                  if (payment['receiptNumber'] != null)
+                                    Text(
+                                      'Recibo: ${payment['receiptNumber']}',
+                                      style: const TextStyle(fontSize: 12),
+                                    ),
+                                ],
+                              ),
+                              trailing:
+                                  isActive
+                                      ? PopupMenuButton<String>(
+                                        icon: const Icon(Icons.more_vert),
+                                        onSelected: (value) async {
+                                          if (value == 'edit') {
+                                            await _editPayment(
+                                              context,
+                                              creditRef,
+                                              paymentId,
+                                              amount,
+                                            );
+                                          } else if (value == 'delete') {
+                                            await _deletePayment(
+                                              context,
+                                              creditRef,
+                                              paymentId,
+                                              amount,
+                                            );
+                                          }
+                                        },
+                                        itemBuilder:
+                                            (context) => [
+                                              const PopupMenuItem(
+                                                value: 'edit',
+                                                child: Row(
+                                                  children: [
+                                                    Icon(Icons.edit, size: 20),
+                                                    SizedBox(width: 8),
+                                                    Text('Editar'),
+                                                  ],
+                                                ),
+                                              ),
+                                              const PopupMenuItem(
+                                                value: 'delete',
+                                                child: Row(
+                                                  children: [
+                                                    Icon(Icons.delete, size: 20, color: Colors.red),
+                                                    SizedBox(width: 8),
+                                                    Text(
+                                                      'Eliminar',
+                                                      style: TextStyle(color: Colors.red),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ],
+                                      )
+                                      : null,
                             ),
-                            title: Text('Abono: \$${amount.toStringAsFixed(0)}'),
-                            subtitle: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text('Fecha: ${DateFormat.yMd('es_CO').format(date)}'),
-                                if (payment['receiptNumber'] != null)
-                                  Text('Recibo: ${payment['receiptNumber']}'),
-                              ],
-                            ),
-                            trailing:
-                                isActive
-                                    ? PopupMenuButton<String>(
-                                      onSelected: (value) async {
-                                        if (value == 'edit') {
-                                          await _editPayment(context, creditRef, paymentId, amount);
-                                        } else if (value == 'delete') {
-                                          await _deletePayment(
-                                            context,
-                                            creditRef,
-                                            paymentId,
-                                            amount,
-                                          );
-                                        }
-                                      },
-                                      itemBuilder:
-                                          (context) => [
-                                            const PopupMenuItem(
-                                              value: 'edit',
-                                              child: Text('Editar'),
-                                            ),
-                                            const PopupMenuItem(
-                                              value: 'delete',
-                                              child: Text('Eliminar'),
-                                            ),
-                                          ],
-                                    )
-                                    : null,
                           );
                         }),
-                        const Divider(height: 32),
+
+                        const SizedBox(height: 20),
 
                         // Sección de resumen
-                        Text('📊 Resumen', style: Theme.of(context).textTheme.titleMedium),
-                        const SizedBox(height: 8),
-                        Text('Cuotas restantes: $cuotasRestantes'),
-                        if (proximaCuota != null)
-                          Text('Próxima cuota: ${DateFormat.yMMMMd('es_CO').format(proximaCuota)}'),
-                        if (fechaFinal != null)
-                          Text(
-                            'Fecha final estimada: ${DateFormat.yMMMMd('es_CO').format(fechaFinal)}',
-                          ),
+                        _buildSectionHeader(context, '📊 Resumen del Crédito'),
+                        _buildInfoCard(
+                          children: [
+                            _buildInfoRow(
+                              'Cuotas restantes',
+                              '$cuotasRestantes',
+                              valueColor: cuotasRestantes > 0 ? Colors.orange : Colors.green,
+                            ),
+                            if (proximaCuota != null)
+                              _buildInfoRow(
+                                'Próxima cuota',
+                                DateFormat.yMMMMd('es_CO').format(proximaCuota),
+                              ),
+                            if (fechaFinal != null)
+                              _buildInfoRow(
+                                'Fecha final estimada',
+                                DateFormat.yMMMMd('es_CO').format(fechaFinal),
+                              ),
+                            _buildProgressIndicator(context, cuotasPagadas, cuot),
+                          ],
+                        ),
                       ],
                     ),
+                  ),
+                  floatingActionButton: FloatingActionButton(
+                    onPressed: () => _addPayment(context, creditRef, cuota),
+                    child: const Icon(Icons.add),
                   ),
                 );
               },
@@ -210,6 +290,197 @@ class CreditDetailScreen extends StatelessWidget {
         );
       },
     );
+  }
+
+  Widget _buildSectionHeader(BuildContext context, String title) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Text(
+        title,
+        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+          fontWeight: FontWeight.bold,
+          color: Theme.of(context).primaryColor,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInfoCard({required List<Widget> children}) {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(padding: const EdgeInsets.all(16), child: Column(children: children)),
+    );
+  }
+
+  Widget _buildInfoRow(String label, String value, {bool isAmount = false, Color? valueColor}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 14, color: Colors.grey)),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: isAmount ? FontWeight.bold : FontWeight.normal,
+              color: valueColor ?? (isAmount ? Colors.green : Colors.black),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProgressIndicator(BuildContext context, int paid, int total) {
+    final percentage = (paid / total * 100).round();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 16),
+        Text(
+          'Progreso: $paid/$total ($percentage%)',
+          style: const TextStyle(fontSize: 12, color: Colors.grey),
+        ),
+        const SizedBox(height: 4),
+        LinearProgressIndicator(
+          value: paid / total,
+          backgroundColor: Colors.grey[200],
+          valueColor: AlwaysStoppedAnimation<Color>(
+            percentage >= 100 ? Colors.green : Theme.of(context).primaryColor,
+          ),
+          minHeight: 8,
+          borderRadius: BorderRadius.circular(4),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEmptyState(String message) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(color: Colors.grey[100], borderRadius: BorderRadius.circular(12)),
+      child: Row(
+        children: [
+          const Icon(Icons.info_outline, color: Colors.grey),
+          const SizedBox(width: 8),
+          Text(message, style: const TextStyle(color: Colors.grey)),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _addPayment(BuildContext context, DocumentReference creditRef, double cuota) async {
+    final amountController = TextEditingController(text: cuota.toStringAsFixed(0));
+    final receiptController = TextEditingController();
+    final dateController = TextEditingController(
+      text: DateFormat.yMd('es_CO').format(DateTime.now()),
+    );
+
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            title: const Text('Registrar Pago'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: amountController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Valor del pago',
+                      prefixIcon: Icon(Icons.attach_money),
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: receiptController,
+                    decoration: const InputDecoration(
+                      labelText: 'Número de recibo (opcional)',
+                      prefixIcon: Icon(Icons.receipt),
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: dateController,
+                    readOnly: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Fecha del pago',
+                      prefixIcon: Icon(Icons.calendar_today),
+                      border: OutlineInputBorder(),
+                    ),
+                    onTap: () async {
+                      final date = await showDatePicker(
+                        context: context,
+                        initialDate: DateTime.now(),
+                        firstDate: DateTime(2000),
+                        lastDate: DateTime(2100),
+                      );
+                      if (date != null) {
+                        dateController.text = DateFormat.yMd('es_CO').format(date);
+                      }
+                    },
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+              ElevatedButton(
+                onPressed: () {
+                  final amount = double.tryParse(amountController.text);
+                  if (amount != null) {
+                    Navigator.pop(context, {
+                      'amount': amount,
+                      'receiptNumber': receiptController.text,
+                      'date': dateController.text,
+                    });
+                  }
+                },
+                child: const Text('Guardar'),
+              ),
+            ],
+          ),
+    );
+
+    if (result != null) {
+      try {
+        await creditRef.collection('payments').add({
+          'amount': result['amount'],
+          'receiptNumber': result['receiptNumber'].isEmpty ? null : result['receiptNumber'],
+          'date': DateFormat.yMd('es_CO').parse(result['date']),
+          'isActive': true,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+
+        await creditRef.update({
+          'totalPaid': FieldValue.increment(result['amount']),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Pago registrado correctamente'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } catch (e) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error al registrar pago: $e'), backgroundColor: Colors.red),
+          );
+        }
+      }
+    }
   }
 
   Future<void> _editPayment(
@@ -227,7 +498,10 @@ class CreditDetailScreen extends StatelessWidget {
             content: TextField(
               controller: controller,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'Nuevo valor del abono'),
+              decoration: const InputDecoration(
+                labelText: 'Nuevo valor del abono',
+                border: OutlineInputBorder(),
+              ),
             ),
             actions: [
               TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
@@ -238,7 +512,7 @@ class CreditDetailScreen extends StatelessWidget {
                     Navigator.pop(context, edited);
                   }
                 },
-                child: const Text('Guardar'),
+                child: const Text('Guardar Cambios'),
               ),
             ],
           ),
@@ -246,26 +520,30 @@ class CreditDetailScreen extends StatelessWidget {
 
     if (newAmount != null && newAmount != currentAmount) {
       try {
-        // Actualizar el pago
         await creditRef.collection('payments').doc(paymentId).update({
           'amount': newAmount,
           'updatedAt': FieldValue.serverTimestamp(),
         });
 
-        // Actualizar el total pagado en el crédito
-        final difference = newAmount - currentAmount;
         await creditRef.update({
-          'totalPaid': FieldValue.increment(difference),
+          'totalPaid': FieldValue.increment(newAmount - currentAmount),
           'updatedAt': FieldValue.serverTimestamp(),
         });
 
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Pago actualizado correctamente')));
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Pago actualizado correctamente'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
       } catch (e) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error al actualizar pago: $e')));
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error al actualizar pago: $e'), backgroundColor: Colors.red),
+          );
+        }
       }
     }
   }
@@ -281,7 +559,9 @@ class CreditDetailScreen extends StatelessWidget {
       builder:
           (context) => AlertDialog(
             title: const Text('Eliminar Abono'),
-            content: const Text('¿Estás seguro de eliminar este abono?'),
+            content: const Text(
+              '¿Estás seguro de eliminar este abono? Esta acción no se puede deshacer.',
+            ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, false),
@@ -289,6 +569,7 @@ class CreditDetailScreen extends StatelessWidget {
               ),
               ElevatedButton(
                 onPressed: () => Navigator.pop(context, true),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
                 child: const Text('Eliminar'),
               ),
             ],
@@ -299,10 +580,7 @@ class CreditDetailScreen extends StatelessWidget {
       try {
         final batch = FirebaseFirestore.instance.batch();
 
-        // 1. Eliminar el pago
         batch.delete(creditRef.collection('payments').doc(paymentId));
-
-        // 2. Actualizar el crédito
         batch.update(creditRef, {
           'totalPaid': FieldValue.increment(-amount),
           'updatedAt': FieldValue.serverTimestamp(),
@@ -311,15 +589,18 @@ class CreditDetailScreen extends StatelessWidget {
         await batch.commit();
 
         if (context.mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('Pago eliminado correctamente')));
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Pago eliminado correctamente'),
+              backgroundColor: Colors.green,
+            ),
+          );
         }
       } catch (e) {
         if (context.mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text('Error al eliminar pago: $e')));
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error al eliminar pago: $e'), backgroundColor: Colors.red),
+          );
         }
       }
     }
