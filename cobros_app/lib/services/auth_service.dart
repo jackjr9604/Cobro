@@ -84,7 +84,6 @@ class AuthService {
   }
 
   // Registrar nuevo usuario
-  // Registrar nuevo usuario
   Future<UserCredential> registerWithEmailAndPassword({
     required String email,
     required String password,

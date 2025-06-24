@@ -1,10 +1,9 @@
-import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'edit_office.dart';
 import '../../../utils/app_theme.dart';
-import 'package:intl/intl.dart'; // para Clipboard
+import 'package:intl/intl.dart';
 
 class OfficeManagementScreen extends StatefulWidget {
   const OfficeManagementScreen({super.key});
@@ -33,6 +32,16 @@ class _OfficeManagementScreenState extends State<OfficeManagementScreen> {
   void initState() {
     super.initState();
     _loadOffice();
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _addressController.dispose();
+    _cellphoneController.dispose();
+    _address2Controller.dispose();
+    _cellphone2Controller.dispose();
+    super.dispose();
   }
 
   Future<void> _loadOffice() async {
@@ -64,12 +73,6 @@ class _OfficeManagementScreenState extends State<OfficeManagementScreen> {
     });
   }
 
-  String _generateOfficeId() {
-    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    final rand = Random();
-    return List.generate(20, (index) => chars[rand.nextInt(chars.length)]).join();
-  }
-
   Future<void> _createOffice() async {
     final user = _auth.currentUser;
     if (user == null) return;
@@ -81,35 +84,26 @@ class _OfficeManagementScreenState extends State<OfficeManagementScreen> {
     if (name.isEmpty || address.isEmpty || cellphone.isEmpty) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text('Completa todos los campos obligatorios')));
+      ).showSnackBar(const SnackBar(content: Text('Completa los campos obligatorios')));
       return;
     }
 
     final now = FieldValue.serverTimestamp();
 
     try {
-      final officeRef = await _firestore
-          .collection('users')
-          .doc(user.uid)
-          .collection('offices')
-          .add({
-            'name': name,
-            'address': address,
-            'cellphone': cellphone,
-            'address2': _address2Controller.text.trim(),
-            'cellphone2': _cellphone2Controller.text.trim(),
-            'createdAt': now,
-            'updatedAt': now,
-          });
+      await _firestore.collection('users').doc(user.uid).collection('offices').add({
+        'name': name,
+        'address': address,
+        'cellphone': cellphone,
+        'address2': _address2Controller.text.trim(),
+        'cellphone2': _cellphone2Controller.text.trim(),
+        'createdAt': now,
+        'updatedAt': now,
+      });
 
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Oficina creada correctamente')));
-
-      setState(() {
-        _officeId = officeRef.id;
-        _hasOffice = true;
-      });
 
       await _loadOffice();
     } catch (e) {
@@ -119,15 +113,31 @@ class _OfficeManagementScreenState extends State<OfficeManagementScreen> {
     }
   }
 
-  Widget _buildFormField(String label, TextEditingController controller, IconData icon) {
+  Widget _buildFormField(
+    String label,
+    TextEditingController controller, {
+    bool optional = false,
+    IconData? icon,
+    TextInputType keyboardType = TextInputType.text,
+    int? maxLines = 1,
+  }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: TextField(
         controller: controller,
+        keyboardType: keyboardType,
+        maxLines: maxLines,
         decoration: InputDecoration(
           labelText: label,
-          prefixIcon: Icon(icon),
+          prefixIcon: icon != null ? Icon(icon) : null,
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+          suffixIcon:
+              optional
+                  ? Tooltip(
+                    message: 'Campo opcional',
+                    child: Icon(Icons.info_outline, color: Colors.grey[500]),
+                  )
+                  : null,
         ),
       ),
     );
@@ -179,8 +189,7 @@ class _OfficeManagementScreenState extends State<OfficeManagementScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('Gestión de Oficina'),
-
+        title: const Text('Gestión de Oficina'),
         actions:
             _hasOffice
                 ? [
@@ -193,6 +202,7 @@ class _OfficeManagementScreenState extends State<OfficeManagementScreen> {
                           builder:
                               (context) => EditOfficeScreen(
                                 officeId: _officeId!,
+                                userId: _auth.currentUser!.uid,
                                 initialData: {
                                   'name': _nameController.text,
                                   'address': _addressController.text,
@@ -235,18 +245,18 @@ class _OfficeManagementScreenState extends State<OfficeManagementScreen> {
                           ],
                         ),
                         const SizedBox(height: 20),
-                        // Sección de información principal
+                        // Información principal
                         _buildInfoItem(
                           Icons.location_on,
                           'Dirección Principal',
                           _addressController.text,
                         ),
                         _buildInfoItem(
-                          Icons.phone,
-                          'Teléfono Principal',
+                          Icons.phone_android,
+                          'Teléfono Celular',
                           _cellphoneController.text,
                         ),
-                        // Sección opcional solo si existe información
+                        // Información opcional
                         if (_address2Controller.text.isNotEmpty)
                           _buildInfoItem(
                             Icons.location_city,
@@ -255,11 +265,11 @@ class _OfficeManagementScreenState extends State<OfficeManagementScreen> {
                           ),
                         if (_cellphone2Controller.text.isNotEmpty)
                           _buildInfoItem(
-                            Icons.phone_android,
+                            Icons.phone,
                             'Teléfono Alternativo',
                             _cellphone2Controller.text,
                           ),
-                        //Metadata
+                        // Metadata
                         const SizedBox(height: 20),
                         if (_createdAt != null) _buildMetaInfo('Creado el', _createdAt!.toDate()),
                         if (_updatedAt != null)
@@ -268,45 +278,70 @@ class _OfficeManagementScreenState extends State<OfficeManagementScreen> {
                     ),
                   ),
                 )
-                : Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Crear nueva oficina',
-                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).primaryColor,
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    _buildFormField('Nombre de la oficina', _nameController, Icons.business),
-                    _buildFormField('Dirección principal', _addressController, Icons.location_on),
-                    _buildFormField('Teléfono celular', _cellphoneController, Icons.phone),
-                    // Sección opcional
-                    const SizedBox(height: 16),
-                    Text(
-                      'Información adicional (opcional)',
-                      style: TextStyle(color: Colors.grey[600], fontStyle: FontStyle.italic),
-                    ),
-                    _buildFormField('Segunda dirección', _address2Controller, Icons.location_city),
-                    _buildFormField(
-                      'Teléfono alternativo',
-                      _cellphone2Controller,
-                      Icons.phone_android,
-                    ),
-                    // Botón de creación
-                    const SizedBox(height: 24),
-                    Center(
-                      child: ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                : SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Crear nueva oficina',
+                        style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: Theme.of(context).primaryColor,
                         ),
-                        onPressed: _createOffice,
-                        child: const Text('Crear oficina'),
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 20),
+                      // Campos obligatorios
+                      _buildFormField(
+                        'Nombre de la oficina',
+                        _nameController,
+                        icon: Icons.business,
+                      ),
+                      _buildFormField(
+                        'Dirección principal',
+                        _addressController,
+                        icon: Icons.location_on,
+                        maxLines: 2,
+                      ),
+                      _buildFormField(
+                        'Teléfono celular',
+                        _cellphoneController,
+                        icon: Icons.phone,
+                        keyboardType: TextInputType.phone,
+                      ),
+                      // Campos opcionales
+                      const SizedBox(height: 16),
+                      Text(
+                        'Información adicional (opcional)',
+                        style: TextStyle(color: Colors.grey[600], fontStyle: FontStyle.italic),
+                      ),
+                      _buildFormField(
+                        'Segunda dirección',
+                        _address2Controller,
+                        icon: Icons.location_city,
+                        optional: true,
+                        maxLines: 2,
+                      ),
+                      _buildFormField(
+                        'Teléfono alternativo',
+                        _cellphone2Controller,
+                        icon: Icons.phone_android,
+                        optional: true,
+                        keyboardType: TextInputType.phone,
+                      ),
+                      // Botón de creación
+                      const SizedBox(height: 24),
+                      Center(
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          onPressed: _createOffice,
+                          child: const Text('Crear oficina'),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
       ),
     );

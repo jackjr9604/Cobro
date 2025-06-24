@@ -5,9 +5,15 @@ import '../../../utils/app_theme.dart';
 
 class EditOfficeScreen extends StatefulWidget {
   final String officeId;
+  final String userId;
   final Map<String, dynamic> initialData;
 
-  const EditOfficeScreen({super.key, required this.officeId, required this.initialData});
+  const EditOfficeScreen({
+    super.key,
+    required this.officeId,
+    required this.userId,
+    required this.initialData,
+  });
 
   @override
   State<EditOfficeScreen> createState() => _EditOfficeScreenState();
@@ -33,32 +39,63 @@ class _EditOfficeScreenState extends State<EditOfficeScreen> {
     _cellphone2Controller = TextEditingController(text: widget.initialData['cellphone2'] ?? '');
   }
 
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _addressController.dispose();
+    _cellphoneController.dispose();
+    _address2Controller.dispose();
+    _cellphone2Controller.dispose();
+    super.dispose();
+  }
+
   Future<void> _saveChanges() async {
     setState(() => _isSaving = true);
 
-    await _firestore.collection('offices').doc(widget.officeId).update({
-      'name': _nameController.text.trim(),
-      'address': _addressController.text.trim(),
-      'cellphone': _cellphoneController.text.trim(),
-      'address2': _address2Controller.text.trim(),
-      'cellphone2': _cellphone2Controller.text.trim(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
+    try {
+      await _firestore
+          .collection('users')
+          .doc(widget.userId)
+          .collection('offices')
+          .doc(widget.officeId)
+          .update({
+            'name': _nameController.text.trim(),
+            'address': _addressController.text.trim(),
+            'cellphone': _cellphoneController.text.trim(),
+            'address2': _address2Controller.text.trim(),
+            'cellphone2': _cellphone2Controller.text.trim(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Oficina actualizada correctamente',
-          style: TextStyle(fontSize: Responsive.isMobile(context) ? 14 : 16),
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Oficina actualizada correctamente',
+            style: TextStyle(fontSize: Responsive.isMobile(context) ? 14 : 16),
+          ),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          duration: const Duration(seconds: 2),
         ),
-        backgroundColor: Colors.green,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        duration: const Duration(seconds: 2),
-      ),
-    );
+      );
 
-    Navigator.pop(context);
+      Navigator.pop(context, true);
+    } catch (e) {
+      setState(() => _isSaving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Error al actualizar: ${e.toString()}',
+            style: TextStyle(fontSize: Responsive.isMobile(context) ? 14 : 16),
+          ),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
   }
 
   Widget _buildField(
@@ -67,6 +104,7 @@ class _EditOfficeScreenState extends State<EditOfficeScreen> {
     bool optional = false,
     IconData? icon,
     TextInputType keyboardType = TextInputType.text,
+    int? maxLines = 1,
   }) {
     final fontSize = Responsive.isMobile(context) ? 14.0 : 16.0;
     return Padding(
@@ -75,6 +113,7 @@ class _EditOfficeScreenState extends State<EditOfficeScreen> {
         controller: controller,
         style: TextStyle(fontSize: fontSize),
         keyboardType: keyboardType,
+        maxLines: maxLines,
         decoration: InputDecoration(
           labelText: label,
           labelStyle: TextStyle(fontSize: fontSize, color: Colors.grey[600]),
@@ -115,10 +154,8 @@ class _EditOfficeScreenState extends State<EditOfficeScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text('Editar Oficina', style: TextStyle(fontSize: titleFontSize)),
-
         iconTheme: IconThemeData(color: Colors.white),
       ),
-
       body:
           _isSaving
               ? Center(
@@ -169,6 +206,7 @@ class _EditOfficeScreenState extends State<EditOfficeScreen> {
                           'Dirección principal',
                           _addressController,
                           icon: Icons.location_on,
+                          maxLines: 2,
                         ),
                         _buildField(
                           'Teléfono celular',
@@ -198,6 +236,7 @@ class _EditOfficeScreenState extends State<EditOfficeScreen> {
                           _address2Controller,
                           icon: Icons.location_city,
                           optional: true,
+                          maxLines: 2,
                         ),
                         _buildField(
                           'Teléfono alternativo',
