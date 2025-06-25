@@ -40,34 +40,38 @@ class _LoginScreenState extends State<LoginScreen> {
       final email = _emailController.text.trim();
       final password = _passwordController.text.trim();
 
+      // 1. Autenticar usuario
       await _authService.signInWithEmailAndPassword(email: email, password: password);
 
-      // Obtener datos del usuario para verificar el rol
+      // 2. Obtener datos con verificación de membresía incluida
       final userData = await _authService.getCurrentUserData();
-      if (userData == null || userData['role'] == null) {
-        throw AuthException('Usuario no tiene rol asignado');
+
+      if (userData == null) {
+        throw AuthException('No se pudieron obtener los datos del usuario');
+      }
+
+      if (userData['role'] == null) {
+        throw AuthException('El usuario no tiene un rol asignado');
       }
 
       if (!mounted) return;
+
+      // 3. Navegar a pantalla principal
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (context) => MainScreen(userRole: userData['role'])),
+        MaterialPageRoute(
+          builder:
+              (context) => MainScreen(
+                userRole: userData['role'],
+                isMembershipActive: userData['isMembershipActive'] ?? false,
+              ),
+        ),
       );
-    } on FirebaseAuthException catch (e) {
-      print('🔥 Código: ${e.code}');
-      print('📄 Mensaje: ${e.message}');
-      print('📚 Tipo de error: ${e.runtimeType}');
-      final authError = AuthException.fromFirebase(e.code);
-      setState(() => _errorMessage = authError.message);
     } on AuthException catch (e) {
-      print('🔥 Código: ${e.code}');
-      print('📄 Mensaje: ${e.message}');
-      print('📚 Tipo de error: ${e.runtimeType}');
-      // ⚠️ Ya es seguro capturar errores personalizados
       setState(() => _errorMessage = e.message);
     } catch (e) {
-      // 🧯 Cualquier otro error no previsto
-      setState(() => _errorMessage = 'Error desconocido. Intente nuevamente');
+      setState(() => _errorMessage = 'Error durante el inicio de sesión');
+      debugPrint('Error en _signIn: $e');
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);

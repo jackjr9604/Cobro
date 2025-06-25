@@ -6,6 +6,9 @@ import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/services.dart';
+import '../../../services/auth_service.dart';
+import 'package:provider/provider.dart';
+import 'dart:async';
 
 class MembershipScreen extends StatefulWidget {
   const MembershipScreen({super.key});
@@ -20,23 +23,31 @@ class _MembershipScreenState extends State<MembershipScreen> {
   File? _comprobanteImage;
   final TextEditingController _transactionIdController = TextEditingController();
   bool _showPaymentSection = false;
+  late StreamSubscription<DocumentSnapshot> _userSubscription;
 
   @override
   void initState() {
     super.initState();
-    _loadUserData();
+    _setupUserListener();
+    _verifyMembershipStatus();
   }
 
-  Future<void> _loadUserData() async {
+  void _setupUserListener() {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
 
-    final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
-
-    setState(() {
-      _userData = doc.data();
-      _isLoading = false;
-    });
+    _userSubscription = FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .snapshots()
+        .listen((snapshot) {
+          if (snapshot.exists) {
+            setState(() {
+              _userData = snapshot.data();
+              _isLoading = false;
+            });
+          }
+        });
   }
 
   Future<void> _pickImage() async {
@@ -45,6 +56,35 @@ class _MembershipScreenState extends State<MembershipScreen> {
       setState(() {
         _comprobanteImage = File(pickedFile.path);
       });
+    }
+  }
+
+  Future<void> _loadUserData() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+
+    if (mounted) {
+      setState(() {
+        _userData = doc.data();
+      });
+    }
+  }
+
+  // Nuevo método para verificar el estado de la membresía
+  Future<void> _verifyMembershipStatus() async {
+    try {
+      setState(() => _isLoading = true);
+      final authService = Provider.of<AuthService>(context, listen: false);
+      await authService.checkAndUpdateMembershipStatus();
+      await _loadUserData();
+    } catch (e) {
+      debugPrint('Error verificando membresía: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -63,7 +103,6 @@ class _MembershipScreenState extends State<MembershipScreen> {
     final userEmail = user?.email ?? 'No especificado';
     final uid = _userData?['uid'] ?? 'uid';
 
-    // Construir el mensaje
     String message = 'Hola, quiero renovar mi membresía.\n\n';
     message += '*Nombre:* $userName\n';
     message += '*Email:* $userEmail\n\n';
@@ -77,15 +116,11 @@ class _MembershipScreenState extends State<MembershipScreen> {
 
     message += '\nPor favor verifica mi pago. ¡Gracias!';
 
-    // Número de WhatsApp de la empresa (reemplaza con tu número)
-    const whatsappNumber = '573506191443'; // Formato internacional sin signos
+    const whatsappNumber = '573506191443';
 
     final urlsToTry = [
-      // Intentar con el esquema 'whatsapp://'
       Uri.parse('whatsapp://send?phone=$whatsappNumber&text=${Uri.encodeComponent(message)}'),
-      // Intentar con el esquema 'https://wa.me/'
       Uri.parse('https://wa.me/$whatsappNumber?text=${Uri.encodeComponent(message)}'),
-      // Intentar solo con el número (para que el usuario elija cómo abrirlo)
       Uri.parse(
         'https://api.whatsapp.com/send?phone=$whatsappNumber&text=${Uri.encodeComponent(message)}',
       ),
@@ -106,8 +141,22 @@ class _MembershipScreenState extends State<MembershipScreen> {
     }
 
     if (!whatsappOpened) {
-      // Si no se pudo abrir WhatsApp, mostrar opciones al usuario
       _showWhatsAppNotInstalledDialog(context, message, whatsappNumber);
+    } else {
+      // Mostrar mensaje de confirmación
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Mensaje enviado. Por favor espera la activación manual.'),
+          duration: Duration(seconds: 5),
+        ),
+      );
+
+      // Cerrar la sección de pago después de enviar
+      setState(() {
+        _showPaymentSection = false;
+        _transactionIdController.clear();
+        _comprobanteImage = null;
+      });
     }
   }
 
@@ -354,7 +403,7 @@ class _MembershipScreenState extends State<MembershipScreen> {
             icon: const Icon(Icons.refresh),
             onPressed: () {
               setState(() => _isLoading = true);
-              _loadUserData();
+              // Al refrescar, el listener actualizará automáticamente los datos
             },
           ),
         ],
@@ -475,6 +524,7 @@ class _MembershipScreenState extends State<MembershipScreen> {
 
   @override
   void dispose() {
+    _userSubscription.cancel();
     _transactionIdController.dispose();
     super.dispose();
   }

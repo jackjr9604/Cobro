@@ -21,9 +21,15 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 class MainScreen extends StatefulWidget {
   final String userRole;
+  final bool isMembershipActive; // Añade este parámetro
   final Widget? child;
 
-  const MainScreen({super.key, required this.userRole, this.child});
+  const MainScreen({
+    super.key,
+    required this.userRole,
+    this.isMembershipActive = false, // Valor por defecto
+    this.child,
+  });
 
   @override
   State<MainScreen> createState() => _MainScreenState();

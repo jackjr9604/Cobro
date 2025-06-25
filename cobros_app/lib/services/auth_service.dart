@@ -6,84 +6,103 @@ class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  // Stream de cambios en el estado de autenticación
+  // Streams públicos
   Stream<User?> get authStateChanges => _auth.authStateChanges();
+
+  Stream<Map<String, dynamic>?> userDataStream(String uid) {
+    return _firestore.collection('users').doc(uid).snapshots().map((snapshot) {
+      return snapshot.data()?..['emailVerified'] = _auth.currentUser?.emailVerified ?? false;
+    });
+  }
 
   // Usuario actual
   User? get currentUser => _auth.currentUser;
 
-  // Obtener datos del usuario actual desde Firestore
-  Future<Map<String, dynamic>?> getCurrentUserData() async {
+  // Método unificado para manejo de membresía
+  Future<Map<String, dynamic>?> checkAndUpdateMembershipStatus() async {
     try {
       final user = _auth.currentUser;
       if (user == null) return null;
 
-      final doc = await _firestore.collection('users').doc(user.uid).get();
+      final userDoc = _firestore.collection('users').doc(user.uid);
+      final doc = await userDoc.get();
+
       if (!doc.exists) return null;
 
-      return {...doc.data() as Map<String, dynamic>, 'emailVerified': user.emailVerified};
-    } catch (e) {
-      debugPrint('Error getting user data: $e');
-      throw AuthException('Error al obtener datos del usuario');
-    }
-  }
+      final activeStatus = doc.data()?['activeStatus'] as Map<String, dynamic>?;
+      if (activeStatus == null) return null;
 
-  // Agrega este método a tu AuthService
-  Future<void> checkAndUpdateMembershipStatus() async {
-    final user = _auth.currentUser;
-    if (user == null) return;
+      final now = DateTime.now();
+      final endDate = (activeStatus['endDate'] as Timestamp).toDate();
+      final isActive = activeStatus['isActive'] as bool;
 
-    final userDoc = _firestore.collection('users').doc(user.uid);
-    final doc = await userDoc.get();
-
-    if (!doc.exists) return;
-
-    final data = doc.data();
-    final activeStatus = data?['activeStatus'] as Map<String, dynamic>?;
-
-    if (activeStatus == null) return;
-
-    final now = DateTime.now();
-    final endDate = (activeStatus['endDate'] as Timestamp).toDate();
-    final isActive = activeStatus['isActive'] as bool;
-
-    // Si la membresía está vencida pero aún aparece como activa
-    if (now.isAfter(endDate)) {
-      await userDoc.update({
-        'activeStatus': {
+      if (now.isAfter(endDate) && isActive) {
+        final updatedStatus = {
           'isActive': false,
           'startDate': activeStatus['startDate'],
           'endDate': activeStatus['endDate'],
-        },
-      });
+        };
+
+        await userDoc.update({'activeStatus': updatedStatus});
+        return updatedStatus;
+      }
+
+      return activeStatus;
+    } catch (e) {
+      debugPrint('Error en membresía: $e');
+      return null;
     }
-    ;
   }
 
-  // Modifica el método signInWithEmailAndPassword para que verifique la membresía
-  Future<void> signInWithEmailAndPassword({required String email, required String password}) async {
-    if (email.isEmpty || password.isEmpty) {
-      throw AuthException('Correo y contraseña son obligatorios');
-    }
-    try {
-      await FirebaseAuth.instance.signInWithEmailAndPassword(email: email, password: password);
+  Future<Map<String, dynamic>?> getCurrentUserData() async {
+    final user = _auth.currentUser;
+    if (user == null) return null;
 
-      // Verificar el estado de la membresía después de iniciar sesión
+    try {
+      final doc = await _firestore.collection('users').doc(user.uid).get();
+      if (!doc.exists) return null;
+
+      // Verificar y actualizar estado de membresía primero
+      await checkAndUpdateMembershipStatus();
+
+      return {
+        ...doc.data() as Map<String, dynamic>,
+        'emailVerified': user.emailVerified,
+        'isMembershipActive': await _checkMembershipActiveStatus(user.uid),
+      };
+    } catch (e) {
+      debugPrint('Error getting user data: $e');
+      return null;
+    }
+  }
+
+  Future<bool> _checkMembershipActiveStatus(String uid) async {
+    try {
+      final doc = await _firestore.collection('users').doc(uid).get();
+      final activeStatus = doc.data()?['activeStatus'] as Map<String, dynamic>?;
+      if (activeStatus == null) return false;
+
+      final endDate = (activeStatus['endDate'] as Timestamp).toDate();
+      return activeStatus['isActive'] as bool && !DateTime.now().isAfter(endDate);
+    } catch (e) {
+      debugPrint('Error checking membership: $e');
+      return false;
+    }
+  }
+
+  // Autenticación
+  Future<void> signInWithEmailAndPassword({required String email, required String password}) async {
+    try {
+      await _auth.signInWithEmailAndPassword(email: email.trim(), password: password.trim());
       await checkAndUpdateMembershipStatus();
     } on FirebaseAuthException catch (e) {
-      print('🔥 FirebaseAuthException: code=${e.code}, message=${e.message}');
-      if (e.code == 'unknown-error') {
-        throw AuthException('Error desconocido de Firebase. Revise su conexión o datos');
-      }
       throw AuthException.fromFirebase(e.code);
-    } catch (e, s) {
-      print('🚨 Error inesperado: $e');
-      print('Stack trace: $s');
-      throw AuthException('Error inesperado. Intente nuevamente');
+    } catch (e) {
+      debugPrint('Error en login: $e');
+      throw const AuthException('Error al iniciar sesión');
     }
   }
 
-  // Registrar nuevo usuario
   Future<UserCredential> registerWithEmailAndPassword({
     required String email,
     required String password,
@@ -93,92 +112,68 @@ class AuthService {
     String? officeName,
     bool sendEmailVerification = true,
   }) async {
-    UserCredential? userCredential; // Declaramos aquí para que esté disponible en el catch
-
     try {
-      // Crear usuario en Firebase Auth
-      userCredential = await _auth.createUserWithEmailAndPassword(
+      final userCredential = await _auth.createUserWithEmailAndPassword(
         email: email.trim(),
         password: password.trim(),
       );
 
-      // Actualizar display name si se proporcionó
-      if (displayName != null) {
-        await userCredential.user!.updateDisplayName(displayName);
-      }
-
-      // Crear perfil en Firestore
-      await _createUserProfile(
-        user: userCredential.user!,
-        role: role,
-        officeId: officeId,
-        officeName: officeName,
-        displayName: displayName,
-      );
-
-      // Enviar email de verificación si es necesario
-      if (sendEmailVerification) {
-        await userCredential.user!.sendEmailVerification();
-      }
-
-      return userCredential;
-    } on FirebaseAuthException catch (e) {
-      // Si falla el registro en Firestore, eliminar el usuario de Auth
-      if (e.code != 'email-already-in-use' && userCredential?.user != null) {
-        await userCredential?.user?.delete();
-      }
-      throw AuthException.fromFirebase(e.code);
-    } catch (e) {
-      debugPrint('Registration error: $e');
-      if (userCredential?.user != null) {
-        await userCredential?.user?.delete();
-      }
-      throw AuthException('Error en el registro');
-    }
-  }
-
-  // Crear perfil de usuario en Firestore
-  Future<void> _createUserProfile({
-    required User user,
-    required String role,
-    String? officeId,
-    String? officeName,
-    String? displayName,
-  }) async {
-    try {
-      await _firestore.collection('users').doc(user.uid).set({
-        'uid': user.uid,
-        'email': user.email,
-        'displayName': displayName ?? user.displayName,
+      await _firestore.collection('users').doc(userCredential.user!.uid).set({
+        'uid': userCredential.user!.uid,
+        'email': email,
+        'displayName': displayName ?? userCredential.user!.displayName ?? '',
         'role': role,
         'officeId': officeId,
         'officeName': officeName,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
         'isActive': true,
-        'emailVerified': user.emailVerified,
-        'photoUrl': user.photoURL,
+        'emailVerified': false,
+        'photoUrl': userCredential.user!.photoURL,
       });
+
+      if (sendEmailVerification) {
+        await userCredential.user!.sendEmailVerification();
+      }
+
+      return userCredential;
+    } on FirebaseAuthException catch (e) {
+      throw AuthException.fromFirebase(e.code);
     } catch (e) {
-      debugPrint('Error creating user profile: $e');
-      throw AuthException('Error al crear perfil de usuario');
+      debugPrint('Error en registro: $e');
+      throw const AuthException('Error en el registro');
     }
   }
 
-  // Obtener datos de usuario desde Firestore
-  Future<Map<String, dynamic>?> _getUserData(String? uid) async {
-    if (uid == null) return null;
-    final doc = await _firestore.collection('users').doc(uid).get();
-    return doc.exists ? doc.data() : null;
+  // Métodos simplificados de perfil
+  Future<void> updateProfile({String? displayName, String? photoUrl}) async {
+    try {
+      final user = _auth.currentUser;
+      if (user == null) throw const AuthException('No autenticado');
+
+      await Future.wait([
+        if (displayName != null) user.updateDisplayName(displayName),
+        if (photoUrl != null) user.updatePhotoURL(photoUrl),
+        _firestore.collection('users').doc(user.uid).update({
+          if (displayName != null) 'displayName': displayName,
+          if (photoUrl != null) 'photoUrl': photoUrl,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }),
+      ]);
+    } on FirebaseAuthException catch (e) {
+      throw AuthException.fromFirebase(e.code);
+    } catch (e) {
+      debugPrint('Error actualizando perfil: $e');
+      throw const AuthException('Error al actualizar perfil');
+    }
   }
 
-  // Cerrar sesión
   Future<void> signOut() async {
     try {
       await _auth.signOut();
     } catch (e) {
-      debugPrint('Sign out error: $e');
-      throw AuthException('Error al cerrar sesión');
+      debugPrint('Error en logout: $e');
+      throw const AuthException('Error al cerrar sesión');
     }
   }
 
@@ -215,28 +210,6 @@ class AuthService {
   }
 
   // Actualizar perfil de usuario
-  Future<void> updateUserProfile({String? displayName, String? photoUrl}) async {
-    try {
-      final user = _auth.currentUser;
-      if (user == null) throw AuthException('No hay usuario autenticado');
-
-      // Actualizar en Firebase Auth
-      await user.updateDisplayName(displayName);
-      if (photoUrl != null) await user.updatePhotoURL(photoUrl);
-
-      // Actualizar en Firestore
-      await _firestore.collection('users').doc(user.uid).update({
-        'displayName': displayName ?? user.displayName,
-        'photoUrl': photoUrl ?? user.photoURL,
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-    } on FirebaseAuthException catch (e) {
-      throw AuthException.fromFirebase(e.code);
-    } catch (e) {
-      debugPrint('Update profile error: $e');
-      throw AuthException('Error al actualizar perfil');
-    }
-  }
 
   // Eliminar cuenta de usuario
   Future<void> deleteAccount() async {
@@ -262,7 +235,7 @@ class AuthException implements Exception {
   final String message;
   final String? code;
 
-  AuthException(this.message, [this.code]);
+  const AuthException(this.message, [this.code]);
 
   factory AuthException.fromFirebase(String code) {
     switch (code) {
@@ -301,8 +274,8 @@ class AuthException implements Exception {
         return AuthException('Error desconocido. Verifique los datos e intente de nuevo');
 
       default:
-        debugPrint('Unhandled Firebase auth error code: $code');
-        return AuthException('Error de autenticación. Por favor intente nuevamente');
+        debugPrint('Código de error no manejado: $code');
+        return const AuthException('Error de autenticación');
     }
   }
 

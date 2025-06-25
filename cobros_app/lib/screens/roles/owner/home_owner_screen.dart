@@ -282,49 +282,95 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
     }
   }
 
-  Widget _buildSummaryCard(String title, String value, IconData icon, Color color) {
-    return Card(
-      elevation: 2,
-      margin: const EdgeInsets.all(6),
-      child: Padding(
-        padding: const EdgeInsets.all(12.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Row(
+  Widget _buildSummaryCard(
+    String title,
+    String value,
+    IconData icon,
+    Color color,
+    String helpText,
+  ) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isLargeScreen = constraints.maxWidth > 600;
+
+        return Card(
+          elevation: 2,
+          margin: const EdgeInsets.all(6),
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            constraints: BoxConstraints(minHeight: isLargeScreen ? 150 : 120),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Icon(icon, size: 24, color: color),
-                const SizedBox(width: 8),
-                Flexible(
-                  child: Text(
-                    title,
-                    style: TextStyle(
-                      fontSize: 14, // Tamaño fijo adecuado para móviles
-                      color: Colors.grey,
-                      fontWeight: FontWeight.w500,
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Flexible(
+                      child: Row(
+                        children: [
+                          Icon(icon, size: isLargeScreen ? 28 : 24, color: color),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              title,
+                              style: TextStyle(
+                                fontSize: isLargeScreen ? 16 : 14,
+                                color: Colors.grey,
+                                fontWeight: FontWeight.w500,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 2,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    overflow: TextOverflow.ellipsis,
-                    maxLines: 2,
+                    IconButton(
+                      icon: Icon(
+                        Icons.help_outline,
+                        size: isLargeScreen ? 22 : 18,
+                        color: Colors.grey,
+                      ),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      onPressed: () {
+                        showDialog(
+                          context: context,
+                          builder:
+                              (context) => AlertDialog(
+                                title: Text(title),
+                                content: Text(helpText),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () => Navigator.pop(context),
+                                    child: const Text('Entendido'),
+                                  ),
+                                ],
+                              ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    value,
+                    style: TextStyle(
+                      fontSize: isLargeScreen ? 22 : 18,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
-              child: Text(
-                value,
-                style: const TextStyle(
-                  fontSize: 18, // Tamaño más grande para el valor
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -488,62 +534,66 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Resumen rápido
             const Text(
               'Resumen General',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
-            GridView.count(
-              crossAxisCount: 2, // Mantener 2 columnas en móviles
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              childAspectRatio: 1.4, // Relación de aspecto ligeramente mayor
-              crossAxisSpacing: 8,
-              mainAxisSpacing: 8,
-              padding: const EdgeInsets.all(4),
-              children: [
-                _buildSummaryCard(
-                  'Recaudado Hoy',
-                  currencyFormat.format(_dailyCollection),
-                  Icons.today,
-                  Colors.purple,
-                ),
-                _buildSummaryCard(
-                  'Recaudo Mes',
-                  currencyFormat.format(_collectedThisMonth),
-                  Icons.attach_money,
-                  Colors.purple,
-                ),
-                _buildSummaryCard(
-                  'Balance Total',
-                  currencyFormat.format(_totalBalance),
-                  Icons.account_balance_wallet,
-                  Colors.blue,
-                ),
-                _buildSummaryCard(
-                  'Créd. Activos',
-                  currencyFormat.format(_activeCredits),
-                  Icons.credit_card,
-                  Colors.green,
-                ),
-
-                _buildSummaryCard(
-                  'Cobradores',
-                  _collectors.length.toString(),
-                  Icons.people,
-                  Colors.orange,
-                ),
-              ],
-            ),
-
-            const SizedBox(height: 24),
-
-            // Gráfico de recaudación mensual (simplificado)
-            const Text(
-              'Recaudación Mensual',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
             const SizedBox(height: 12),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final isLargeScreen = constraints.maxWidth > 600;
+                final crossAxisCount = isLargeScreen ? 3 : 2;
+
+                return GridView.count(
+                  crossAxisCount: crossAxisCount,
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  childAspectRatio: 1.2,
+                  crossAxisSpacing: 12,
+                  mainAxisSpacing: 12,
+                  padding: const EdgeInsets.all(8),
+                  children: [
+                    _buildSummaryCard(
+                      'Recaudado Hoy',
+                      currencyFormat.format(_dailyCollection),
+                      Icons.today,
+                      Colors.purple,
+                      'Monto total recaudado en el día de hoy por todos tus cobradores.',
+                    ),
+                    _buildSummaryCard(
+                      'Recaudo Mes',
+                      currencyFormat.format(_collectedThisMonth),
+                      Icons.attach_money,
+                      Colors.purple,
+                      'Suma de todos los pagos recibidos en el mes actual.',
+                    ),
+                    _buildSummaryCard(
+                      'Balance Total',
+                      currencyFormat.format(_totalBalance),
+                      Icons.account_balance_wallet,
+                      Colors.blue,
+                      'Total histórico de dinero recaudado desde que comenzaste a usar la aplicación.',
+                    ),
+                    _buildSummaryCard(
+                      'Créd. Activos',
+                      currencyFormat.format(_activeCredits),
+                      Icons.credit_card,
+                      Colors.green,
+                      'Valor total de los créditos que actualmente están activos y en proceso de pago.',
+                    ),
+                    _buildSummaryCard(
+                      'Cobradores',
+                      _collectors.length.toString(),
+                      Icons.people,
+                      Colors.orange,
+                      'Número de cobradores activos que trabajan actualmente en tu oficina.',
+                    ),
+                    if (isLargeScreen && crossAxisCount == 3)
+                      const SizedBox.shrink(), // Espacio vacío para mantener alineación
+                  ],
+                );
+              },
+            ),
 
             const SizedBox(height: 24),
 
@@ -554,6 +604,29 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
                 const Text(
                   'Cobradores Activos',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: () {
+                    showDialog(
+                      context: context,
+                      builder:
+                          (context) => AlertDialog(
+                            title: const Text('Recaudación Mensual'),
+                            content: const Text(
+                              'Esta sección muestra los cobradores activos. '
+                              'Incluye la suma de todo lo recolectado por cada cobrador en el mes actual, este calculo se realiza luego de la liquidacion',
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(context),
+                                child: const Text('Entendido'),
+                              ),
+                            ],
+                          ),
+                    );
+                  },
+                  child: const Icon(Icons.help_outline, size: 20, color: Colors.grey),
                 ),
               ],
             ),
