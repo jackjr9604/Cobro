@@ -151,7 +151,7 @@ class CreditDetailScreen extends StatelessWidget {
                         const SizedBox(height: 20),
 
                         // Sección de pagos
-                        _buildSectionHeader(context, '📆 Cuotas Pagadas ($cuotasPagadas/${cuot})'),
+                        _buildSectionHeader(context, '📆 Cuotas Pagadas ($cuotasPagadas/$cuot)'),
                         if (payments.isEmpty) _buildEmptyState('No hay pagos registrados'),
                         ...payments.map((paymentDoc) {
                           final payment = paymentDoc.data() as Map<String, dynamic>;

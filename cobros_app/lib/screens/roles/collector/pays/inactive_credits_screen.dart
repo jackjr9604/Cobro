@@ -26,7 +26,9 @@ class _InactiveCreditsScreenState extends State<InactiveCreditsScreen> {
 
   @override
   void dispose() {
-    controllers.values.forEach((controller) => controller.dispose());
+    for (var controller in controllers.values) {
+      controller.dispose();
+    }
     super.dispose();
   }
 

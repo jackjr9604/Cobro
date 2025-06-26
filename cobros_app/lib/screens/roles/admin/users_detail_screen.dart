@@ -95,16 +95,11 @@ class _UsersDetailScreenState extends State<UsersDetailScreen> {
                           contentPadding: EdgeInsets.symmetric(horizontal: 8),
                           isDense: true,
                         ),
-                        onChanged:
-                            (v) => setState(
-                              () => _searchText = v.trim().toLowerCase(),
-                            ),
+                        onChanged: (v) => setState(() => _searchText = v.trim().toLowerCase()),
                       ),
                     ),
                     IconButton(
-                      icon: Icon(
-                        _ascending ? Icons.arrow_downward : Icons.arrow_upward,
-                      ),
+                      icon: Icon(_ascending ? Icons.arrow_downward : Icons.arrow_upward),
                       onPressed: () => setState(() => _ascending = !_ascending),
                     ),
                   ],
@@ -115,13 +110,7 @@ class _UsersDetailScreenState extends State<UsersDetailScreen> {
                     const SizedBox(width: 8),
                     DropdownButton<String>(
                       value: _roleFilter,
-                      items:
-                          roles
-                              .map(
-                                (r) =>
-                                    DropdownMenuItem(value: r, child: Text(r)),
-                              )
-                              .toList(),
+                      items: roles.map((r) => DropdownMenuItem(value: r, child: Text(r))).toList(),
                       onChanged: (v) => setState(() => _roleFilter = v!),
                     ),
                   ],
@@ -202,9 +191,7 @@ class _UsersDetailScreenState extends State<UsersDetailScreen> {
     return GestureDetector(
       onLongPress: () {
         Clipboard.setData(ClipboardData(text: value));
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('$label copiado')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$label copiado')));
       },
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 2),
@@ -216,9 +203,9 @@ class _UsersDetailScreenState extends State<UsersDetailScreen> {
 
 extension StringCapitalize on String {
   String capitalize() {
-    if (this.isEmpty) {
+    if (isEmpty) {
       return this; // Si la cadena está vacía, simplemente la devuelve
     }
-    return '${this[0].toUpperCase()}${this.substring(1).toLowerCase()}'; // Capitaliza solo la primera letra
+    return '${this[0].toUpperCase()}${substring(1).toLowerCase()}'; // Capitaliza solo la primera letra
   }
 }

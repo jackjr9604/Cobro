@@ -232,20 +232,20 @@ class _OwnerCollectorsScreenState extends State<RegisterCollector> {
   }
 
   Future<String> _getOwnerPasswordDialog(BuildContext context) async {
-    final TextEditingController _pwController = TextEditingController();
+    final TextEditingController pwController = TextEditingController();
     return await showDialog<String>(
           context: context,
           builder: (context) {
             return AlertDialog(
               title: const Text('Confirma tu contraseña'),
               content: TextField(
-                controller: _pwController,
+                controller: pwController,
                 obscureText: true,
                 decoration: const InputDecoration(labelText: 'Contraseña'),
               ),
               actions: [
                 TextButton(
-                  onPressed: () => Navigator.pop(context, _pwController.text),
+                  onPressed: () => Navigator.pop(context, pwController.text),
                   child: const Text(
                     'Confirmar',
                     style: TextStyle(fontFamily: AppTheme.primaryFont, color: AppTheme.neutroColor),

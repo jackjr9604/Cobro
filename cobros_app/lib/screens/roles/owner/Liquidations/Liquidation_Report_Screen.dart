@@ -757,7 +757,7 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
                                                         );
                                                       }),
                                                   DataRow(
-                                                    color: MaterialStateProperty.all(
+                                                    color: WidgetStateProperty.all(
                                                       Colors.grey[300],
                                                     ),
                                                     cells:

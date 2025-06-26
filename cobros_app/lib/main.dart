@@ -1,7 +1,8 @@
+//Este archivo es el punto de entrada principal
+
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:sqflite/sqflite.dart';
 import 'dart:io';
 import 'firebase_options.dart';
 import 'screens/login_screen.dart';

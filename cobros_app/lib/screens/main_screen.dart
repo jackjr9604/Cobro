@@ -362,7 +362,7 @@ class _MainScreenState extends State<MainScreen> {
           children: [
             UserAccountsDrawerHeader(
               accountName: Text(
-                '$roleName',
+                roleName,
                 style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
               accountEmail: Text(
@@ -380,7 +380,7 @@ class _MainScreenState extends State<MainScreen> {
               child: ListView(
                 padding: EdgeInsets.zero,
                 children: [
-                  ..._getMenuItems(context).whereType<Widget>().toList(),
+                  ..._getMenuItems(context).whereType<Widget>(),
                   const Padding(
                     padding: EdgeInsets.all(16.0),
                     child: Text(
@@ -421,7 +421,7 @@ class _MainScreenState extends State<MainScreen> {
                     size: 80, // Cambia este valor al tamaño que necesites
                   ),
                   SizedBox(width: 8),
-                  Text('$roleName', style: const TextStyle(color: Colors.white)),
+                  Text(roleName, style: const TextStyle(color: Colors.white)),
                   const SizedBox(height: 20),
                   Text(
                     _currentUserData?['email'] ?? 'ejemplo@ejemplo.com',
@@ -436,7 +436,7 @@ class _MainScreenState extends State<MainScreen> {
             child: ListView(
               padding: EdgeInsets.zero,
               children: [
-                ..._getMenuItems(context).whereType<Widget>().toList(),
+                ..._getMenuItems(context).whereType<Widget>(),
                 const Padding(
                   padding: EdgeInsets.all(16.0),
                   child: Text(

@@ -85,7 +85,7 @@ class _EditClientScreenState extends State<EditClientScreen> {
         {'uid': 'unassigned', 'name': 'Sin asignar'},
         ...query.docs.map((doc) {
           return {'uid': doc.id, 'name': doc['name'] ?? 'Sin nombre'};
-        }).toList(),
+        }),
       ];
     });
   }

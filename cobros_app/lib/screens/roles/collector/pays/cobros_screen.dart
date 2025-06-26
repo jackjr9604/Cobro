@@ -29,7 +29,9 @@ class _CobrosScreenState extends State<CobrosScreen> {
 
   @override
   void dispose() {
-    controllers.values.forEach((controller) => controller.dispose());
+    for (var controller in controllers.values) {
+      controller.dispose();
+    }
     super.dispose();
   }
 
@@ -84,7 +86,7 @@ class _CobrosScreenState extends State<CobrosScreen> {
 
       for (final clientDoc in clientsQuery.docs) {
         final clientId = clientDoc.id;
-        final clientData = clientDoc.data() as Map<String, dynamic>;
+        final clientData = clientDoc.data();
 
         // Primero verificar si hay créditos con createdAt
         final creditsQuery =
@@ -130,7 +132,7 @@ class _CobrosScreenState extends State<CobrosScreen> {
                 .get();
 
         for (final creditDoc in orderedCreditsQuery.docs) {
-          final creditData = creditDoc.data() as Map<String, dynamic>;
+          final creditData = creditDoc.data();
           allActiveCredits.add({
             ...creditData,
             'creditId': creditDoc.id,
@@ -166,7 +168,7 @@ class _CobrosScreenState extends State<CobrosScreen> {
 
       for (final clientDoc in clientsQuery.docs) {
         final clientId = clientDoc.id;
-        final clientData = clientDoc.data() as Map<String, dynamic>;
+        final clientData = clientDoc.data();
 
         final creditsQuery =
             await FirebaseFirestore.instance
@@ -181,7 +183,7 @@ class _CobrosScreenState extends State<CobrosScreen> {
                 .get();
 
         for (final creditDoc in creditsQuery.docs) {
-          final creditData = creditDoc.data() as Map<String, dynamic>;
+          final creditData = creditDoc.data();
           allActiveCredits.add({
             ...creditData,
             'creditId': creditDoc.id,
@@ -324,7 +326,7 @@ class _CobrosScreenState extends State<CobrosScreen> {
     // Calcular total abonado
     final totalAbonado = paymentsQuery.docs.fold(
       0.0,
-      (sum, doc) => sum + ((doc.data() as Map<String, dynamic>)['amount'] ?? 0).toDouble(),
+      (sum, doc) => sum + ((doc.data())['amount'] ?? 0).toDouble(),
     );
 
     // Calcular saldo restante
@@ -674,13 +676,11 @@ class _CobrosScreenState extends State<CobrosScreen> {
 
       if (nextPaymentIndex < paymentSchedule.length) {
         nextPaymentDate = paymentSchedule[nextPaymentIndex];
-        if (nextPaymentDate != null) {
-          if (now.isAfter(nextPaymentDate)) {
-            daysOverdue = now.difference(nextPaymentDate).inDays;
-            overdueStatus = _getOverdueStatus(daysOverdue);
-          } else {
-            overdueStatus = 'próximo';
-          }
+        if (now.isAfter(nextPaymentDate)) {
+          daysOverdue = now.difference(nextPaymentDate).inDays;
+          overdueStatus = _getOverdueStatus(daysOverdue);
+        } else {
+          overdueStatus = 'próximo';
         }
       }
     } catch (e) {

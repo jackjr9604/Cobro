@@ -237,7 +237,7 @@ class CreditsRoutesScreen extends StatelessWidget {
                   ),
                   Chip(
                     label: Text(
-                      '${paymentsCount}/$cout',
+                      '$paymentsCount/$cout',
                       style: const TextStyle(color: Colors.white),
                     ),
                     backgroundColor:
