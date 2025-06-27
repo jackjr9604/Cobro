@@ -462,7 +462,6 @@ class _ClientCreditsScreenState extends State<ClientCreditsScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton(
-        backgroundColor: Colors.indigo,
         onPressed: () {
           Navigator.push(
             context,

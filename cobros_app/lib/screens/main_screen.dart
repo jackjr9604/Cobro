@@ -242,8 +242,8 @@ class _MainScreenState extends State<MainScreen> {
           onTap: () => _updateIndex(3, context),
         ),
         ListTile(
-          leading: const Icon(Icons.payment),
-          title: const Text('Cobros'),
+          leading: const Icon(Icons.route_rounded),
+          title: const Text('Rutas'),
           selected: _selectedIndex == 4,
           selectedTileColor: Colors.blue[100],
           onTap: () => _updateIndex(4, context),

@@ -66,6 +66,19 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
     return List.generate(12, (index) => chars[random.nextInt(chars.length)]).join();
   }
 
+  Future<String?> _getUserRole(String userId) async {
+    try {
+      final userDoc = await FirebaseFirestore.instance.collection('users').doc(userId).get();
+      if (userDoc.exists) {
+        return userDoc.data()?['role'] as String?;
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Error obteniendo rol del usuario: $e');
+      return null;
+    }
+  }
+
   Future<void> _saveClient() async {
     if (_formKey.currentState?.validate() ?? false) {
       _formKey.currentState?.save();
@@ -81,10 +94,13 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
         final now = FieldValue.serverTimestamp();
         final user = FirebaseAuth.instance.currentUser!;
 
+        // Obtener el rol del usuario actual
+        final userRole = await _getUserRole(user.uid);
+
         // Obtener el ownerId (para collectors será el createdBy, para owners será su propio UID)
         final ownerId = await _getOwnerId(user.uid);
 
-        // Preparar los datos del cliente
+        // Preparar los datos base del cliente
         final data = {
           'clientName': _clientName,
           'cc': _cc,
@@ -97,8 +113,13 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
           'createdAt': isEditing ? (widget.initialData?['createdAt'] ?? now) : now,
           'updatedAt': now,
           'officeId': widget.officeId,
-          'createdBy': user.uid, // Siempre guardamos quien creó el cliente
+          // createdBy se añadirá solo si es collector
         };
+
+        // Solo añadir createdBy si el usuario es collector
+        if (userRole == 'collector') {
+          data['createdBy'] = user.uid;
+        }
 
         // Referencia a la colección de clientes del OWNER
         final clientRef = FirebaseFirestore.instance

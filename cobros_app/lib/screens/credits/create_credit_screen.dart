@@ -23,11 +23,64 @@ class _CreateCreditScreenState extends State<CreateCreditScreen> {
   final TextEditingController _creditController = TextEditingController();
   final TextEditingController _interestController = TextEditingController();
   final TextEditingController _cuotController = TextEditingController();
+  @override
+  void initState() {
+    super.initState();
+    _creditController.addListener(_formatCreditValue);
+  }
+
+  @override
+  void dispose() {
+    _creditController.removeListener(_formatCreditValue);
+    super.dispose();
+  }
+
+  void _formatCreditValue() {
+    final text = _creditController.text;
+    final selection = _creditController.selection;
+
+    // Si el texto está vacío, no hacer nada
+    if (text.isEmpty) return;
+
+    // Guardar la posición original del cursor
+    final cursorPosition = selection.extentOffset;
+
+    // Limpiar el texto (eliminar todos los puntos)
+    final cleanText = text.replaceAll('.', '');
+
+    // Formatear el número
+    String formattedText;
+    try {
+      final number = int.parse(cleanText);
+      formattedText = NumberFormat('#,##0', 'es_CO').format(number);
+    } catch (e) {
+      formattedText = text;
+    }
+
+    // Calcular la nueva posición del cursor
+    int newCursorPosition = cursorPosition + (formattedText.length - text.length);
+
+    // Asegurar que la posición del cursor esté dentro de los límites
+    newCursorPosition = newCursorPosition.clamp(0, formattedText.length);
+
+    // Solo actualizar si hubo cambios
+    if (formattedText != text) {
+      _creditController.value = TextEditingValue(
+        text: formattedText,
+        selection: TextSelection.collapsed(offset: newCursorPosition),
+      );
+    }
+  }
+
+  // Modificar el getter para limpiar el valor
+  double get _credit {
+    final cleanValue = _creditController.text.replaceAll('.', '');
+    return double.tryParse(cleanValue) ?? 0.0;
+  }
 
   String _method = 'Diario';
   String? _selectedDay;
 
-  double get _credit => double.tryParse(_creditController.text) ?? 0.0;
   double get _interestPercent => double.tryParse(_interestController.text) ?? 0.0;
   int get _cuot => int.tryParse(_cuotController.text) ?? 1;
 
@@ -232,6 +285,21 @@ class _CreateCreditScreenState extends State<CreateCreditScreen> {
     }
   }
 
+  String _formatNumber(String value) {
+    if (value.isEmpty) return '';
+
+    // Eliminar todos los caracteres no numéricos
+    String cleanValue = value.replaceAll(RegExp(r'[^0-9]'), '');
+
+    // Convertir a número y formatear
+    try {
+      final number = int.parse(cleanValue);
+      return NumberFormat('#,##0', 'es_CO').format(number);
+    } catch (e) {
+      return value; // Si hay error, devolver el valor original
+    }
+  }
+
   Widget _buildFormField(
     BuildContext context,
     String label,
@@ -342,8 +410,17 @@ class _CreateCreditScreenState extends State<CreateCreditScreen> {
                         'Valor del crédito',
                         _creditController,
                         Icons.attach_money,
-                        TextInputType.number,
-                        (value) => value!.isEmpty ? 'Campo requerido' : null,
+                        TextInputType.numberWithOptions(
+                          decimal: false,
+                        ), // Teclado numérico sin decimales
+                        (value) {
+                          if (value == null || value.isEmpty) return 'Campo requerido';
+                          final cleanValue = value.replaceAll('.', '');
+                          if (double.tryParse(cleanValue) == null) return 'Ingrese un valor válido';
+                          if (double.parse(cleanValue) <= 0)
+                            return 'El valor debe ser mayor a cero';
+                          return null;
+                        },
                       ),
                       _buildFormField(
                         context,

@@ -6,6 +6,8 @@ import '../clients/client_form_screen.dart';
 import '../clients/edit_client.dart';
 import '../credits/client_credits_screen.dart';
 import '../../utils/office_verification_mixin.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_sms/flutter_sms.dart';
 
 class ClientsScreen extends StatefulWidget {
   const ClientsScreen({super.key});
@@ -22,6 +24,7 @@ class _ClientsScreenState extends State<ClientsScreen> with OfficeVerificationMi
   String? userId;
   String userRole = '';
   Map<String, dynamic>? userData;
+  int? _expandedIndex;
 
   @override
   void initState() {
@@ -261,6 +264,80 @@ class _ClientsScreenState extends State<ClientsScreen> with OfficeVerificationMi
     }
   }
 
+  // Método para construir filas de información con botones de acción
+  // Método para construir filas de información con botones de acción
+  Widget _buildInfoRow(
+    IconData icon,
+    String? text,
+    BuildContext context, {
+    bool isPhone = false, // Parámetro opcional con valor por defecto
+  }) {
+    if (text == null || text.isEmpty) return const SizedBox.shrink();
+
+    final phoneNumber = isPhone ? text.replaceAll(RegExp(r'[^0-9+]'), '') : '';
+    final showPhoneActions = isPhone && phoneNumber.length >= 7;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 20, color: Colors.grey[600]),
+          const SizedBox(width: 8),
+          Expanded(child: Text(text, style: TextStyle(fontSize: 14, color: Colors.grey[800]))),
+          if (showPhoneActions) ...[
+            IconButton(
+              icon: Icon(Icons.phone, size: 18, color: Colors.green),
+              onPressed: () => _makePhoneCall(phoneNumber),
+              tooltip: 'Llamar',
+            ),
+            IconButton(
+              icon: Icon(Icons.message, size: 18, color: Colors.green),
+              onPressed: () => _openWhatsApp(phoneNumber),
+              tooltip: 'WhatsApp',
+            ),
+          ],
+          IconButton(
+            icon: Icon(Icons.copy, size: 18, color: Theme.of(context).primaryColor),
+            onPressed: () => _copyToClipboard(context, text),
+            tooltip: 'Copiar',
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Método para realizar llamadas telefónicas
+  Future<void> _makePhoneCall(String phoneNumber) async {
+    final Uri launchUri = Uri(scheme: 'tel', path: phoneNumber);
+    if (await canLaunchUrl(launchUri)) {
+      await launchUrl(launchUri);
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('No se pudo realizar la llamada a $phoneNumber')));
+      }
+    }
+  }
+
+  // Método para abrir WhatsApp
+  Future<void> _openWhatsApp(String phoneNumber) async {
+    // Eliminar el signo + si existe (WhatsApp lo necesita sin +)
+    final cleanNumber = phoneNumber.startsWith('+') ? phoneNumber.substring(1) : phoneNumber;
+    final Uri whatsappUri = Uri.parse('https://wa.me/$cleanNumber');
+
+    if (await canLaunchUrl(whatsappUri)) {
+      await launchUrl(whatsappUri);
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('No se pudo abrir WhatsApp con el número $phoneNumber')),
+        );
+      }
+    }
+  }
+
   Future<void> _copyToClipboard(BuildContext context, String text) async {
     await Clipboard.setData(ClipboardData(text: text));
     ScaffoldMessenger.of(
@@ -296,26 +373,6 @@ class _ClientsScreenState extends State<ClientsScreen> with OfficeVerificationMi
     }
 
     return latestCredit;
-  }
-
-  Widget _buildInfoRow(IconData icon, String? text, BuildContext context) {
-    if (text == null || text.isEmpty) return const SizedBox.shrink();
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 20, color: Colors.grey[600]),
-          const SizedBox(width: 8),
-          Expanded(child: Text(text, style: TextStyle(fontSize: 14, color: Colors.grey[800]))),
-          IconButton(
-            icon: Icon(Icons.copy, size: 18, color: Theme.of(context).primaryColor),
-            onPressed: () => _copyToClipboard(context, text),
-          ),
-        ],
-      ),
-    );
   }
 
   Widget _buildActionButton(
@@ -415,195 +472,33 @@ class _ClientsScreenState extends State<ClientsScreen> with OfficeVerificationMi
               }
 
               return ListView.builder(
-                padding: EdgeInsets.only(bottom: 80),
+                padding: const EdgeInsets.only(bottom: 80),
                 physics: const AlwaysScrollableScrollPhysics(),
                 shrinkWrap: true,
                 itemCount: clients.length,
                 itemBuilder: (context, index) {
                   final client = clients[index];
                   final data = client.data();
-                  final createdAt = formatTimestamp(data['createdAt']);
-                  final updatedAt = formatTimestamp(data['updatedAt']);
-                  final createdByUid = data['createdBy'] ?? '';
-                  final currentUser = FirebaseAuth.instance.currentUser!;
-                  final latestCredit = getLatestCreditInfo(data);
-
-                  return FutureBuilder(
-                    future:
-                        FirebaseFirestore.instance.collection('users').doc(currentUser.uid).get(),
-                    builder: (context, snapshotUser) {
-                      if (!snapshotUser.hasData) return const SizedBox.shrink();
-                      final role = snapshotUser.data!.data()?['role'];
-
-                      return FutureBuilder<String>(
-                        future:
-                            role == 'owner' && createdByUid.isNotEmpty
-                                ? getUserDisplayName(createdByUid)
-                                : Future.value(''),
-                        builder: (context, snapshotName) {
-                          final creatorName = snapshotName.data ?? '';
-                          return Card(
-                            margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            elevation: 3,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(12),
-                              onTap: () {
-                                // Navegar al detalle del cliente si lo deseas
-                              },
-                              child: Padding(
-                                padding: const EdgeInsets.all(16),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Expanded(
-                                          child: Text(
-                                            data['clientName'] ?? 'Sin nombre',
-                                            style: TextStyle(
-                                              fontSize: 18,
-                                              fontWeight: FontWeight.bold,
-                                              color: Theme.of(context).primaryColor,
-                                            ),
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                        if (data['refAlias'] != null)
-                                          Container(
-                                            padding: EdgeInsets.symmetric(
-                                              horizontal: 8,
-                                              vertical: 4,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              color: Colors.grey[200],
-                                              borderRadius: BorderRadius.circular(12),
-                                            ),
-                                            child: Text(
-                                              data['refAlias'],
-                                              style: TextStyle(fontSize: 12),
-                                            ),
-                                          ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 12),
-
-                                    // Información de contacto
-                                    _buildInfoRow(Icons.phone, data['cellphone'], context),
-                                    _buildInfoRow(Icons.location_on, data['address'], context),
-
-                                    // Información adicional para owners
-                                    if (role == 'owner') ...[
-                                      const SizedBox(height: 8),
-                                      if (creatorName.isNotEmpty)
-                                        _buildInfoRow(
-                                          Icons.person_outline,
-                                          'Creado por: $creatorName',
-                                          context,
-                                        ),
-                                      if (createdAt.isNotEmpty)
-                                        _buildInfoRow(
-                                          Icons.calendar_today,
-                                          'Creado: $createdAt',
-                                          context,
-                                        ),
-                                      if (updatedAt.isNotEmpty)
-                                        _buildInfoRow(
-                                          Icons.update,
-                                          'Actualizado: $updatedAt',
-                                          context,
-                                        ),
-                                    ],
-
-                                    // Información de crédito
-                                    if (latestCredit != null) ...[
-                                      const SizedBox(height: 12),
-                                      const Divider(),
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        'Último crédito',
-                                        style: TextStyle(fontWeight: FontWeight.bold),
-                                      ),
-                                      _buildInfoRow(
-                                        Icons.credit_card,
-                                        'Crédito #${latestCredit['credit#']}',
-                                        context,
-                                      ),
-                                      _buildInfoRow(
-                                        Icons.attach_money,
-                                        'Valor: ${latestCredit['credit']}',
-                                        context,
-                                      ),
-                                      if (latestCredit['createdAt'] is Timestamp)
-                                        _buildInfoRow(
-                                          Icons.date_range,
-                                          'Fecha: ${formatTimestamp(latestCredit['createdAt'])}',
-                                          context,
-                                        ),
-                                    ],
-
-                                    // Botones de acción
-                                    const SizedBox(height: 16),
-                                    Row(
-                                      mainAxisAlignment: MainAxisAlignment.end,
-                                      children: [
-                                        _buildActionButton(
-                                          context,
-                                          Icons.credit_card,
-                                          Colors.blue,
-                                          () {
-                                            Navigator.push(
-                                              context,
-                                              MaterialPageRoute(
-                                                builder:
-                                                    (_) => ClientCreditsScreen(
-                                                      clientId: client.id,
-                                                      clientName:
-                                                          client.data()['clientName'] ??
-                                                          'sin nombre',
-                                                      officeId: officeId!,
-                                                      userId:
-                                                          FirebaseAuth
-                                                              .instance
-                                                              .currentUser!
-                                                              .uid, // Añade esta línea
-                                                    ),
-                                              ),
-                                            );
-                                          },
-                                        ),
-                                        const SizedBox(width: 8),
-                                        _buildActionButton(context, Icons.edit, Colors.orange, () {
-                                          Navigator.push(
-                                            context,
-                                            MaterialPageRoute(
-                                              builder:
-                                                  (_) => EditClientScreen(
-                                                    clientData: data,
-                                                    clientId: client.id,
-                                                    officeId: officeId!,
-                                                  ),
-                                            ),
-                                          );
-                                        }),
-                                        const SizedBox(width: 8),
-                                        _buildActionButton(
-                                          context,
-                                          Icons.delete,
-                                          Colors.red,
-                                          () => _deleteClient(context, client.id),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                      );
+                  return _ClientCard(
+                    clientData: data,
+                    clientId: client.id,
+                    officeId: officeId!,
+                    userId: user.uid,
+                    userRole: userRole,
+                    isExpanded: _expandedIndex == index,
+                    onTap: () {
+                      setState(() {
+                        _expandedIndex = _expandedIndex == index ? null : index;
+                      });
                     },
+                    buildInfoRow: _buildInfoRow,
+                    makePhoneCall: _makePhoneCall,
+                    openWhatsApp: _openWhatsApp,
+                    getUserDisplayName: getUserDisplayName,
+                    formatTimestamp: formatTimestamp,
+                    getLatestCreditInfo: getLatestCreditInfo,
+                    copyToClipboard: _copyToClipboard,
+                    deleteClient: _deleteClient,
                   );
                 },
               );
@@ -624,6 +519,232 @@ class _ClientsScreenState extends State<ClientsScreen> with OfficeVerificationMi
                 child: const Icon(Icons.add),
               )
               : null,
+    );
+  }
+}
+
+class _ClientCard extends StatelessWidget {
+  final Map<String, dynamic> clientData;
+  final String clientId;
+  final String officeId;
+  final String userId;
+  final String userRole;
+  final bool isExpanded;
+  final VoidCallback onTap;
+  final Widget Function(IconData, String?, BuildContext, {bool isPhone}) buildInfoRow;
+  final Future<void> Function(String) makePhoneCall;
+  final Future<void> Function(String) openWhatsApp;
+  final Future<String> Function(String) getUserDisplayName;
+  final String Function(Timestamp?) formatTimestamp;
+  final Map<String, dynamic>? Function(Map<String, dynamic>) getLatestCreditInfo;
+  final Future<void> Function(BuildContext, String) copyToClipboard;
+  final Future<void> Function(BuildContext, String) deleteClient;
+
+  const _ClientCard({
+    required this.clientData,
+    required this.clientId,
+    required this.officeId,
+    required this.userId,
+    required this.userRole,
+    required this.isExpanded,
+    required this.onTap,
+    required this.buildInfoRow,
+    required this.makePhoneCall,
+    required this.openWhatsApp,
+    required this.getUserDisplayName,
+    required this.formatTimestamp,
+    required this.getLatestCreditInfo,
+    required this.copyToClipboard,
+    required this.deleteClient,
+  });
+
+  List<Widget> _buildCreditInfo(Map<String, dynamic> credit, BuildContext context) {
+    return [
+      buildInfoRow(Icons.credit_card, 'Crédito #${credit['credit#']}', context),
+      buildInfoRow(Icons.attach_money, 'Valor: ${credit['credit']}', context),
+      if (credit['createdAt'] is Timestamp)
+        buildInfoRow(Icons.date_range, 'Fecha: ${formatTimestamp(credit['createdAt'])}', context),
+    ];
+  }
+
+  Widget _buildActionButton(
+    BuildContext context,
+    IconData icon,
+    Color color,
+    VoidCallback onPressed,
+  ) {
+    return Container(
+      decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
+      child: IconButton(icon: Icon(icon, color: color), onPressed: onPressed, splashRadius: 20),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      elevation: 3,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Encabezado con información básica
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(
+                      clientData['clientName'] ?? 'Sin nombre',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Theme.of(context).primaryColor,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (clientData['refAlias'] != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[200],
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(clientData['refAlias'], style: const TextStyle(fontSize: 12)),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // Información básica siempre visible
+              buildInfoRow(Icons.phone, clientData['cellphone'], context, isPhone: true),
+              buildInfoRow(Icons.location_on, clientData['address'], context),
+
+              // Sección expandible
+              AnimatedCrossFade(
+                duration: const Duration(milliseconds: 300),
+                crossFadeState: isExpanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+                firstChild: const SizedBox.shrink(),
+                secondChild: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 12),
+                    const Divider(),
+                    const SizedBox(height: 8),
+
+                    // Información adicional
+                    if (clientData['phone'] != null && clientData['phone'].isNotEmpty)
+                      buildInfoRow(
+                        Icons.phone,
+                        'Teléfono fijo: ${clientData['phone']}',
+                        context,
+                        isPhone: true,
+                      ),
+
+                    if (clientData['address2'] != null && clientData['address2'].isNotEmpty)
+                      buildInfoRow(
+                        Icons.location_city,
+                        'Dirección 2: ${clientData['address2']}',
+                        context,
+                      ),
+
+                    if (clientData['city'] != null && clientData['city'].isNotEmpty)
+                      buildInfoRow(Icons.map, 'Ciudad: ${clientData['city']}', context),
+
+                    // Información para owners
+                    if (userRole == 'owner') ...[
+                      const SizedBox(height: 8),
+                      if (clientData['createdBy'] != null)
+                        FutureBuilder<String>(
+                          future: getUserDisplayName(clientData['createdBy']),
+                          builder: (context, snapshot) {
+                            return buildInfoRow(
+                              Icons.person_outline,
+                              'Creado por: ${snapshot.data ?? 'Desconocido'}',
+                              context,
+                            );
+                          },
+                        ),
+
+                      if (clientData['createdAt'] != null)
+                        buildInfoRow(
+                          Icons.calendar_today,
+                          'Creado: ${formatTimestamp(clientData['createdAt'])}',
+                          context,
+                        ),
+
+                      if (clientData['updatedAt'] != null)
+                        buildInfoRow(
+                          Icons.update,
+                          'Actualizado: ${formatTimestamp(clientData['updatedAt'])}',
+                          context,
+                        ),
+                    ],
+
+                    // Información de crédito (si existe)
+                    if (getLatestCreditInfo(clientData) != null) ...[
+                      const SizedBox(height: 12),
+                      const Divider(),
+                      const SizedBox(height: 8),
+                      const Text('Último crédito', style: TextStyle(fontWeight: FontWeight.bold)),
+                      ..._buildCreditInfo(getLatestCreditInfo(clientData)!, context),
+                    ],
+                  ],
+                ),
+              ),
+
+              // Botones de acción (siempre visibles)
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  _buildActionButton(context, Icons.credit_card, Colors.blue, () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder:
+                            (_) => ClientCreditsScreen(
+                              clientId: clientId,
+                              clientName: clientData['clientName'] ?? 'sin nombre',
+                              officeId: officeId,
+                              userId: userId,
+                            ),
+                      ),
+                    );
+                  }),
+                  const SizedBox(width: 8),
+                  _buildActionButton(context, Icons.edit, Colors.orange, () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder:
+                            (_) => EditClientScreen(
+                              clientData: clientData,
+                              clientId: clientId,
+                              officeId: officeId,
+                            ),
+                      ),
+                    );
+                  }),
+                  const SizedBox(width: 8),
+                  if (userRole == 'owner')
+                    _buildActionButton(
+                      context,
+                      Icons.delete,
+                      Colors.red,
+                      () => deleteClient(context, clientId),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
