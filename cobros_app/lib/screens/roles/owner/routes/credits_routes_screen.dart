@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../routes/pays_details.dart';
 import 'Liquidation_Screen.dart';
+import 'package:intl/intl.dart';
 
 class CreditsRoutesScreen extends StatelessWidget {
   const CreditsRoutesScreen({
@@ -65,6 +66,11 @@ class CreditsRoutesScreen extends StatelessWidget {
 
   double sumPayments(List<Map<String, dynamic>> payments) {
     return payments.fold(0.0, (sum, payment) => sum + (payment['amount'] ?? 0).toDouble());
+  }
+
+  String formatNumber(double value) {
+    final formatter = NumberFormat('#,###', 'es');
+    return formatter.format(value);
   }
 
   Color _getMethodColor(String method) {
@@ -266,15 +272,15 @@ class CreditsRoutesScreen extends StatelessWidget {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _buildInfoRow('Total', '\$${totalCredit.toStringAsFixed(2)}'),
-                      _buildInfoRow('Abonado', '\$${totalPaid.toStringAsFixed(2)}'),
+                      _buildInfoRow('Total', '\$${formatNumber(totalCredit)}'),
+                      _buildInfoRow('Abonado', '\$${formatNumber(totalPaid)}'),
                     ],
                   ),
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      _buildInfoRow('Faltante', '\$${restPay.toStringAsFixed(2)}'),
-                      _buildInfoRow('Cuota', '\$${paymentValue.toStringAsFixed(2)}'),
+                      _buildInfoRow('Faltante', '\$${formatNumber(restPay)}'),
+                      _buildInfoRow('Cuota', '\$${formatNumber(paymentValue)}'),
                     ],
                   ),
                 ],

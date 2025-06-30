@@ -3,6 +3,34 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/services.dart'; // Necesario para TextInputFormatter
+
+class ThousandsFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+    if (newValue.text.isEmpty) {
+      return newValue.copyWith(text: '');
+    }
+
+    // Elimina todos los caracteres no numéricos
+    final numericOnly = newValue.text.replaceAll(RegExp(r'[^0-9]'), '');
+
+    // Si no hay nada después de limpiar, retorna vacío
+    if (numericOnly.isEmpty) return newValue.copyWith(text: '');
+
+    // Parsea a número
+    final number = int.parse(numericOnly);
+
+    // Formatea con separadores de miles
+    final formatter = NumberFormat('#,###', 'es');
+    final formattedText = formatter.format(number);
+
+    return TextEditingValue(
+      text: formattedText,
+      selection: TextSelection.collapsed(offset: formattedText.length),
+    );
+  }
+}
 
 class CollectorLiquidationScreen extends StatefulWidget {
   final String collectorId;
@@ -48,7 +76,9 @@ class _CollectorLiquidationScreenState extends State<CollectorLiquidationScreen>
   @override
   void initState() {
     super.initState();
-    _baseController = TextEditingController(); // Inicialización correcta aquí
+    _baseController = TextEditingController();
+    final formatter = NumberFormat('#,###', 'es');
+    _baseController.text = formatter.format(_originalBase); // Inicialización correcta aquí
     for (var item in _discountItems) {
       item.controller.addListener(_updateTotals);
     }
@@ -84,11 +114,13 @@ class _CollectorLiquidationScreenState extends State<CollectorLiquidationScreen>
   void _updateTotals() {
     double total = 0;
     for (var item in _discountItems) {
-      total += double.tryParse(item.controller.text) ?? 0;
+      final discountText = item.controller.text.replaceAll('.', '');
+      total += double.tryParse(discountText) ?? 0;
     }
+
     setState(() {
       discountTotal = total;
-      netTotal = totalCollected - discountTotal + _originalBase; // Usa la base original aquí
+      netTotal = totalCollected - discountTotal + _originalBase;
     });
   }
 
@@ -221,7 +253,17 @@ class _CollectorLiquidationScreenState extends State<CollectorLiquidationScreen>
 
     setState(() => isLoading = true);
     try {
-      final newBase = double.tryParse(_baseController.text) ?? _originalBase;
+      // Limpiar el formato de la base (eliminar puntos)
+      final baseText = _baseController.text.replaceAll('.', '');
+      final newBase = double.tryParse(baseText) ?? _originalBase;
+
+      // Limpiar los formatos de los descuentos
+      final Map<String, double> cleanedDiscounts = {};
+      for (var item in _discountItems) {
+        final discountText = item.controller.text.replaceAll('.', '');
+        cleanedDiscounts[item.type] = double.tryParse(discountText) ?? 0;
+      }
+
       final liquidationDate = selectedDate ?? DateTime.now();
       final currentUser = FirebaseAuth.instance.currentUser;
       if (currentUser == null) return;
@@ -256,9 +298,7 @@ class _CollectorLiquidationScreenState extends State<CollectorLiquidationScreen>
         'totalCollected': totalCollected,
         'collectorBase': _originalBase,
         'newBase': newBase,
-        'discounts': {
-          for (var item in _discountItems) item.type: (double.tryParse(item.controller.text) ?? 0),
-        },
+        'discounts': cleanedDiscounts, // Usamos los descuentos limpios
         'discountTotal': discountTotal,
         'netTotal': netTotal,
         'isNewMonth': isNewMonth,
@@ -587,26 +627,11 @@ class _CollectorLiquidationScreenState extends State<CollectorLiquidationScreen>
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 child: Row(
                   children: [
-                    CircleAvatar(
-                      radius: 16,
-                      backgroundColor: Theme.of(context).primaryColor.withOpacity(0.1),
-                      child: Text(
-                        p['clientName'].toString().substring(0, 1),
-                        style: TextStyle(
-                          color: Theme.of(context).primaryColor,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            p['clientName'],
-                            style: const TextStyle(fontWeight: FontWeight.bold),
-                          ),
                           Text(
                             DateFormat('h:mm a', 'es').format(p['date']),
                             style: TextStyle(fontSize: 12, color: Colors.grey[600]),
@@ -655,17 +680,19 @@ class _CollectorLiquidationScreenState extends State<CollectorLiquidationScreen>
                     child: TextField(
                       controller: _baseController,
                       keyboardType: TextInputType.number,
+                      inputFormatters: [ThousandsFormatter()],
                       decoration: const InputDecoration(
                         labelText: 'Valor',
                         contentPadding: EdgeInsets.symmetric(horizontal: 8),
                         border: OutlineInputBorder(),
                       ),
                       onChanged: (value) {
-                        // Actualiza el valor local inmediatamente
-                        final newBase = double.tryParse(value) ?? collectorBase;
+                        // Limpia el formato para obtener el valor numérico
+                        final numericValue = value.replaceAll('.', '');
+                        final newBase = double.tryParse(numericValue) ?? _originalBase;
                         setState(() {
                           collectorBase = newBase;
-                          _updateTotals(); // Esto actualizará el netTotal con la nueva base
+                          _updateTotals();
                         });
                       },
                     ),
@@ -710,12 +737,22 @@ class _CollectorLiquidationScreenState extends State<CollectorLiquidationScreen>
                       child: TextField(
                         controller: _discountItems[i].controller,
                         keyboardType: TextInputType.number,
+                        inputFormatters: [ThousandsFormatter()],
                         decoration: const InputDecoration(
                           labelText: 'Valor',
                           contentPadding: EdgeInsets.symmetric(horizontal: 8),
                           border: OutlineInputBorder(),
                         ),
-                        onChanged: (value) => _updateTotals(),
+                        onChanged: (value) {
+                          // Actualiza el valor numérico sin formato
+                          final numericValue = value.replaceAll('.', '');
+                          _discountItems[i].controller.value = _discountItems[i].controller.value
+                              .copyWith(
+                                text: value,
+                                selection: TextSelection.collapsed(offset: value.length),
+                              );
+                          _updateTotals();
+                        },
                       ),
                     ),
                     IconButton(

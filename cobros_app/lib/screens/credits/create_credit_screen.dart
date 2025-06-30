@@ -227,7 +227,7 @@ class _CreateCreditScreenState extends State<CreateCreditScreen> {
       final creditData = {
         'clientId': widget.clientId,
         'officeId': widget.officeId,
-        'createdBy': widget.userId, // Guardamos quien creó el crédito
+        'createdBy': widget.userId,
         'createdAt': Timestamp.now(),
         'credit': _credit,
         'interest': _interestPercent,
@@ -239,6 +239,7 @@ class _CreateCreditScreenState extends State<CreateCreditScreen> {
         'lastPaymentDate': null,
         'daysOverdue': 0,
         'accumulatedInterest': 0.0,
+        'order': 0, // Nuevo campo para el orden personalizado
         if (_method == 'Semanal') 'day': _selectedDay,
       };
 

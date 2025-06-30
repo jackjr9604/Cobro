@@ -376,20 +376,6 @@ class PaysDetails extends StatelessWidget {
                                         '\$${formatCurrency.format(amount)}',
                                         style: const TextStyle(fontWeight: FontWeight.bold),
                                       ),
-                                      subtitle: Text(DateFormat.yMMMMd('es_CO').format(date)),
-                                      trailing:
-                                          isActive
-                                              ? IconButton(
-                                                icon: const Icon(Icons.more_vert),
-                                                onPressed:
-                                                    () => _showPaymentOptions(
-                                                      context,
-                                                      creditRef,
-                                                      paymentDoc.id,
-                                                      amount,
-                                                    ),
-                                              )
-                                              : null,
                                     ),
                                   );
                                 }),

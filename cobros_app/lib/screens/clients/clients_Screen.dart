@@ -7,7 +7,6 @@ import '../clients/edit_client.dart';
 import '../credits/client_credits_screen.dart';
 import '../../utils/office_verification_mixin.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:flutter_sms/flutter_sms.dart';
 
 class ClientsScreen extends StatefulWidget {
   const ClientsScreen({super.key});
