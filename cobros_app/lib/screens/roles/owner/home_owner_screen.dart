@@ -580,13 +580,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
                       Colors.green,
                       'Valor total de los créditos que actualmente están activos y en proceso de pago.',
                     ),
-                    _buildSummaryCard(
-                      'Cobradores',
-                      _collectors.length.toString(),
-                      Icons.people,
-                      Colors.orange,
-                      'Número de cobradores activos que trabajan actualmente en tu oficina.',
-                    ),
+
                     if (isLargeScreen && crossAxisCount == 3)
                       const SizedBox.shrink(), // Espacio vacío para mantener alineación
                   ],
@@ -600,10 +594,29 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text(
+                Text(
                   'Cobradores Activos',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
+                Container(
+                  padding: EdgeInsets.symmetric(vertical: 1, horizontal: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.blueGrey,
+                    border: Border.all(color: Colors.black, width: 2),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Center(
+                    child: Text(
+                      _collectors.length.toString(),
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 20,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+
                 const SizedBox(width: 8),
                 GestureDetector(
                   onTap: () {

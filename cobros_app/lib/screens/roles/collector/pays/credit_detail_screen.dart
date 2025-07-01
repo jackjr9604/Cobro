@@ -3,11 +3,21 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:path/path.dart';
 
+enum PaymentMethod {
+  cash('Efectivo'),
+  nequi('Nequi'),
+  other('Otro');
+
+  final String label;
+  const PaymentMethod(this.label);
+}
+
 class CreditDetailScreen extends StatelessWidget {
   final String userId;
   final String officeId;
   final String clientId;
   final String creditId;
+  final VoidCallback? onPaymentDeleted;
 
   const CreditDetailScreen({
     super.key,
@@ -15,6 +25,7 @@ class CreditDetailScreen extends StatelessWidget {
     required this.officeId,
     required this.clientId,
     required this.creditId,
+    this.onPaymentDeleted, // Nuevo parámetro
   });
 
   @override
@@ -55,6 +66,11 @@ class CreditDetailScreen extends StatelessWidget {
             final payments = paymentsSnapshot.data!.docs;
             final cuotasPagadas = payments.length;
             final cuotasRestantes = cuot - cuotasPagadas;
+            double totalPagado = 0;
+            for (var payment in payments) {
+              totalPagado += (payment['amount'] ?? 0).toDouble();
+            }
+            double saldo = total - totalPagado;
 
             DateTime? lastPaymentDate;
             if (payments.isNotEmpty) {
@@ -131,19 +147,34 @@ class CreditDetailScreen extends StatelessWidget {
                               'Valor',
                               '\$${NumberFormat('#,##0', 'es_CO').format(creditValue)}',
                               isAmount: true,
+                              valueColor: Colors.blue,
                             ),
                             _buildInfoRow('Interés', '${interest.toStringAsFixed(2)}%'),
                             _buildInfoRow(
                               'Total a pagar',
                               '\$${NumberFormat('#,##0', 'es_CO').format(total)}',
                               isAmount: true,
+                              valueColor: Colors.blue,
+                            ),
+                            _buildInfoRow(
+                              'total pagado',
+                              '\$${NumberFormat('#,##0', 'es_CO').format(totalPagado)}',
+                              isAmount: true,
+                              valueColor: Colors.green,
+                            ),
+                            _buildInfoRow(
+                              'Saldo restante',
+                              '\$${NumberFormat('#,##0', 'es_CO').format(saldo)}',
+                              isAmount: true,
+                              valueColor: saldo <= 0 ? Colors.green : Colors.red,
                             ),
                             _buildInfoRow('Método', method),
                             _buildInfoRow('Cuotas', '$cuot'),
                             _buildInfoRow(
                               'Valor de la cuota',
-                              '\$${cuota.toStringAsFixed(0)}',
+                              '\$${NumberFormat('#,##0', 'es_CO').format(cuota)}',
                               isAmount: true,
+                              valueColor: saldo <= 0 ? Colors.grey : Colors.blue,
                             ),
                           ],
                         ),
@@ -182,7 +213,7 @@ class CreditDetailScreen extends StatelessWidget {
                                 ),
                               ),
                               title: Text(
-                                '\$${amount.toStringAsFixed(0)}',
+                                '\$${NumberFormat('#,##0', 'es_CO').format(amount)}',
                                 style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                               ),
                               subtitle: Column(
@@ -197,6 +228,10 @@ class CreditDetailScreen extends StatelessWidget {
                                       'Recibo: ${payment['receiptNumber']}',
                                       style: const TextStyle(fontSize: 12),
                                     ),
+                                  Text(
+                                    'Método: ${payment['paymentMethod'] ?? 'Efectivo'}',
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
                                 ],
                               ),
                               trailing:
@@ -278,10 +313,6 @@ class CreditDetailScreen extends StatelessWidget {
                         ),
                       ],
                     ),
-                  ),
-                  floatingActionButton: FloatingActionButton(
-                    onPressed: () => _addPayment(context, creditRef, cuota),
-                    child: const Icon(Icons.add),
                   ),
                 );
               },
@@ -373,162 +404,146 @@ class CreditDetailScreen extends StatelessWidget {
     );
   }
 
-  Future<void> _addPayment(BuildContext context, DocumentReference creditRef, double cuota) async {
-    final amountController = TextEditingController(text: cuota.toStringAsFixed(0));
-    final receiptController = TextEditingController();
-    final dateController = TextEditingController(
-      text: DateFormat.yMd('es_CO').format(DateTime.now()),
-    );
-
-    final result = await showDialog<Map<String, dynamic>>(
-      context: context,
-      builder:
-          (context) => AlertDialog(
-            title: const Text('Registrar Pago'),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: amountController,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(
-                      labelText: 'Valor del pago',
-                      prefixIcon: Icon(Icons.attach_money),
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: receiptController,
-                    decoration: const InputDecoration(
-                      labelText: 'Número de recibo (opcional)',
-                      prefixIcon: Icon(Icons.receipt),
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: dateController,
-                    readOnly: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Fecha del pago',
-                      prefixIcon: Icon(Icons.calendar_today),
-                      border: OutlineInputBorder(),
-                    ),
-                    onTap: () async {
-                      final date = await showDatePicker(
-                        context: context,
-                        initialDate: DateTime.now(),
-                        firstDate: DateTime(2000),
-                        lastDate: DateTime(2100),
-                      );
-                      if (date != null) {
-                        dateController.text = DateFormat.yMd('es_CO').format(date);
-                      }
-                    },
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
-              ElevatedButton(
-                onPressed: () {
-                  final amount = double.tryParse(amountController.text);
-                  if (amount != null) {
-                    Navigator.pop(context, {
-                      'amount': amount,
-                      'receiptNumber': receiptController.text,
-                      'date': dateController.text,
-                    });
-                  }
-                },
-                child: const Text('Guardar'),
-              ),
-            ],
-          ),
-    );
-
-    if (result != null) {
-      try {
-        await creditRef.collection('payments').add({
-          'amount': result['amount'],
-          'receiptNumber': result['receiptNumber'].isEmpty ? null : result['receiptNumber'],
-          'date': DateFormat.yMd('es_CO').parse(result['date']),
-          'isActive': true,
-          'createdAt': FieldValue.serverTimestamp(),
-        });
-
-        await creditRef.update({
-          'totalPaid': FieldValue.increment(result['amount']),
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Pago registrado correctamente'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-      } catch (e) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error al registrar pago: $e'), backgroundColor: Colors.red),
-          );
-        }
-      }
-    }
-  }
-
   Future<void> _editPayment(
     BuildContext context,
     DocumentReference creditRef,
     String paymentId,
     double currentAmount,
   ) async {
-    final controller = TextEditingController(text: currentAmount.toStringAsFixed(0));
-    final newAmount = await showDialog<double>(
+    final paymentDoc = await creditRef.collection('payments').doc(paymentId).get();
+    final paymentData = paymentDoc.data() as Map<String, dynamic>;
+
+    final amountController = TextEditingController(text: currentAmount.toStringAsFixed(0));
+    PaymentMethod selectedMethod = PaymentMethod.values.firstWhere(
+      (e) => e.label == (paymentData['paymentMethod'] ?? 'Efectivo'),
+      orElse: () => PaymentMethod.cash,
+    );
+    DateTime selectedDate = (paymentData['date'] as Timestamp).toDate();
+
+    final result = await showDialog<bool>(
       context: context,
       builder:
-          (context) => AlertDialog(
-            title: const Text('Editar Abono'),
-            content: TextField(
-              controller: controller,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'Nuevo valor del abono',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
-              ElevatedButton(
-                onPressed: () {
-                  final edited = double.tryParse(controller.text);
-                  if (edited != null) {
-                    Navigator.pop(context, edited);
-                  }
-                },
-                child: const Text('Guardar Cambios'),
-              ),
-            ],
+          (context) => StatefulBuilder(
+            builder:
+                (context, setState) => AlertDialog(
+                  title: const Text('Editar Pago'),
+                  content: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Valor actual: \$${NumberFormat('#,##0', 'es_CO').format(currentAmount)}',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: amountController,
+                          keyboardType: TextInputType.number,
+                          decoration: const InputDecoration(
+                            labelText: 'Nuevo valor del pago',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        // Selector de método de pago
+                        DropdownButtonFormField<PaymentMethod>(
+                          value: selectedMethod,
+                          decoration: const InputDecoration(
+                            labelText: 'Método de pago',
+                            border: OutlineInputBorder(),
+                          ),
+                          items:
+                              PaymentMethod.values.map((method) {
+                                return DropdownMenuItem<PaymentMethod>(
+                                  value: method,
+                                  child: Text(method.label),
+                                );
+                              }).toList(),
+                          onChanged: (method) {
+                            setState(() {
+                              selectedMethod = method ?? PaymentMethod.cash;
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            ElevatedButton(
+                              onPressed: () => setState(() => selectedDate = DateTime.now()),
+                              child: const Text('Hoy'),
+                            ),
+                            const SizedBox(width: 8),
+                            ElevatedButton(
+                              onPressed:
+                                  () => setState(
+                                    () => selectedDate = selectedDate.add(const Duration(days: 1)),
+                                  ),
+                              child: const Text('Mañana'),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.calendar_today),
+                              onPressed: () async {
+                                final date = await showDatePicker(
+                                  context: context,
+                                  initialDate: selectedDate,
+                                  firstDate: DateTime(2020),
+                                  lastDate: DateTime(2100),
+                                );
+                                if (date != null) setState(() => selectedDate = date);
+                              },
+                            ),
+                          ],
+                        ),
+                        Text('Fecha: ${DateFormat('yyyy-MM-dd').format(selectedDate)}'),
+                      ],
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      child: const Text('Cancelar'),
+                    ),
+                    ElevatedButton(
+                      onPressed: () async {
+                        final amount = double.tryParse(amountController.text);
+                        if (amount == null || amount <= 0) {
+                          ScaffoldMessenger.of(
+                            context,
+                          ).showSnackBar(const SnackBar(content: Text('Valor inválido')));
+                          return;
+                        }
+                        Navigator.pop(context, true);
+                      },
+                      child: const Text('Guardar'),
+                    ),
+                  ],
+                ),
           ),
     );
 
-    if (newAmount != null && newAmount != currentAmount) {
+    if (result == true) {
+      final amount = double.parse(amountController.text);
       try {
-        await creditRef.collection('payments').doc(paymentId).update({
-          'amount': newAmount,
+        final batch = FirebaseFirestore.instance.batch();
+
+        // 1. Actualizar el pago
+        final paymentRef = creditRef.collection('payments').doc(paymentId);
+        batch.update(paymentRef, {
+          'amount': amount,
+          'date': Timestamp.fromDate(selectedDate),
+          'paymentMethod': selectedMethod.label,
           'updatedAt': FieldValue.serverTimestamp(),
         });
 
-        await creditRef.update({
-          'totalPaid': FieldValue.increment(newAmount - currentAmount),
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
+        // 2. Actualizar el crédito si cambió el monto
+        if (amount != currentAmount) {
+          batch.update(creditRef, {
+            'totalPaid': FieldValue.increment(amount - currentAmount),
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        }
+
+        await batch.commit();
 
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -559,9 +574,7 @@ class CreditDetailScreen extends StatelessWidget {
       builder:
           (context) => AlertDialog(
             title: const Text('Eliminar Abono'),
-            content: const Text(
-              '¿Estás seguro de eliminar este abono? Esta acción no se puede deshacer.',
-            ),
+            content: const Text('¿Estás seguro de eliminar este abono?'),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(context, false),
@@ -583,6 +596,7 @@ class CreditDetailScreen extends StatelessWidget {
         batch.delete(creditRef.collection('payments').doc(paymentId));
         batch.update(creditRef, {
           'totalPaid': FieldValue.increment(-amount),
+          'nextPaymentIndex': FieldValue.increment(-1),
           'updatedAt': FieldValue.serverTimestamp(),
         });
 
@@ -595,6 +609,11 @@ class CreditDetailScreen extends StatelessWidget {
               backgroundColor: Colors.green,
             ),
           );
+
+          // Llama al callback en lugar de hacer pop
+          if (onPaymentDeleted != null) {
+            onPaymentDeleted!();
+          }
         }
       } catch (e) {
         if (context.mounted) {

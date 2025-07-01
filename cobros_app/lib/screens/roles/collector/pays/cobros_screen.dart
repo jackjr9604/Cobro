@@ -5,6 +5,26 @@ import 'package:intl/intl.dart';
 import 'credit_detail_screen.dart';
 import 'inactive_credits_screen.dart';
 
+enum PaymentMethodFilter {
+  all('Todos'),
+  daily('Diario'),
+  weekly('Semanal'),
+  biweekly('Quincenal'),
+  monthly('Mensual');
+
+  final String label;
+  const PaymentMethodFilter(this.label);
+}
+
+enum PaymentMethod {
+  cash('Efectivo'),
+  nequi('Nequi'),
+  other('Otro');
+
+  final String label;
+  const PaymentMethod(this.label);
+}
+
 class CobrosScreen extends StatefulWidget {
   const CobrosScreen({super.key});
 
@@ -23,6 +43,8 @@ class _CobrosScreenState extends State<CobrosScreen> {
   bool _isEditingOrder = false;
   List<Map<String, dynamic>> _localOrderedCredits = [];
   List<int> _originalOrderValues = [];
+
+  PaymentMethodFilter _selectedFilter = PaymentMethodFilter.all;
 
   @override
   void initState() {
@@ -180,29 +202,96 @@ class _CobrosScreenState extends State<CobrosScreen> {
               ? const Center(child: CircularProgressIndicator())
               : _activeCredits.isEmpty
               ? _buildEmptyState()
-              : RefreshIndicator(
-                onRefresh: _loadActiveCredits,
-                child:
-                    _isEditingOrder
-                        ? ReorderableListView.builder(
-                          buildDefaultDragHandles: false,
-                          padding: const EdgeInsets.all(8),
-                          itemCount: _localOrderedCredits.length,
-                          itemBuilder: (context, index) {
-                            final creditData = _localOrderedCredits[index];
-                            return _buildCreditItem(context, creditData, index, isEditing: true);
-                          },
-                          onReorder: _reorderCredit,
-                        )
-                        : ListView.builder(
-                          padding: const EdgeInsets.all(8),
-                          itemCount: _activeCredits.length,
-                          itemBuilder: (context, index) {
-                            final creditData = _activeCredits[index];
-                            return _buildCreditItem(context, creditData, index, isEditing: false);
-                          },
-                        ),
+              : Column(
+                children: [
+                  Expanded(
+                    child: RefreshIndicator(
+                      onRefresh: _loadActiveCredits,
+                      child:
+                          _isEditingOrder
+                              ? ReorderableListView.builder(
+                                buildDefaultDragHandles: false,
+                                padding: const EdgeInsets.all(8),
+                                itemCount: _localOrderedCredits.length,
+                                itemBuilder: (context, index) {
+                                  final creditData = _localOrderedCredits[index];
+                                  return _buildCreditItem(
+                                    context,
+                                    creditData,
+                                    index,
+                                    isEditing: true,
+                                  );
+                                },
+                                onReorder: _reorderCredit,
+                              )
+                              : ListView.builder(
+                                padding: const EdgeInsets.all(8),
+                                itemCount: _filteredCredits.length,
+                                itemBuilder: (context, index) {
+                                  final creditData = _filteredCredits[index];
+                                  return _buildCreditItem(
+                                    context,
+                                    creditData,
+                                    index,
+                                    isEditing: false,
+                                  );
+                                },
+                              ),
+                    ),
+                  ),
+                  _buildFilterFooter(),
+                ],
               ),
+    );
+  }
+
+  List<Map<String, dynamic>> get _filteredCredits {
+    if (_selectedFilter == PaymentMethodFilter.all) {
+      return _isEditingOrder ? _localOrderedCredits : _activeCredits;
+    }
+
+    return (_isEditingOrder ? _localOrderedCredits : _activeCredits)
+        .where((credit) => credit['method'] == _selectedFilter.label)
+        .toList();
+  }
+
+  Widget _buildFilterFooter() {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      decoration: BoxDecoration(
+        color: Theme.of(context).primaryColor.withOpacity(0.1),
+        border: Border(top: BorderSide(color: Colors.grey.shade300)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children:
+            PaymentMethodFilter.values.map((filter) {
+              return GestureDetector(
+                onTap: () {
+                  setState(() {
+                    _selectedFilter = filter;
+                  });
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color:
+                        _selectedFilter == filter
+                            ? Theme.of(context).primaryColor
+                            : Colors.transparent,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    filter.label,
+                    style: TextStyle(
+                      color: _selectedFilter == filter ? Colors.white : Colors.black,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+      ),
     );
   }
 
@@ -718,6 +807,7 @@ class _CobrosScreenState extends State<CobrosScreen> {
   Future<void> _registerPayment(BuildContext context, Map<String, dynamic> creditData) async {
     final creditId = creditData['creditId'];
     final clientId = creditData['clientId'];
+    PaymentMethod selectedMethod = PaymentMethod.cash; // Valor por defecto
 
     // Cálculos del crédito
     final creditAmount = (creditData['credit'] ?? 0).toDouble();
@@ -781,6 +871,30 @@ class _CobrosScreenState extends State<CobrosScreen> {
                         ),
                       ),
                       const SizedBox(height: 12),
+
+                      const SizedBox(height: 12),
+                      // Selector de método de pago
+                      DropdownButtonFormField<PaymentMethod>(
+                        value: selectedMethod,
+                        decoration: const InputDecoration(
+                          labelText: 'Método de pago',
+                          border: OutlineInputBorder(),
+                        ),
+                        items:
+                            PaymentMethod.values.map((method) {
+                              return DropdownMenuItem<PaymentMethod>(
+                                value: method,
+                                child: Text(method.label),
+                              );
+                            }).toList(),
+                        onChanged: (method) {
+                          setState(() {
+                            selectedMethod = method ?? PaymentMethod.cash;
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 12),
+
                       Row(
                         children: [
                           ElevatedButton(
@@ -873,10 +987,10 @@ class _CobrosScreenState extends State<CobrosScreen> {
       batch.set(paymentRef, {
         'amount': amount,
         'date': Timestamp.fromDate(selectedDate),
-        'isActive': true, // Se marca como activo inicialmente
+        'isActive': true,
         'timestamp': FieldValue.serverTimestamp(),
         'collectorId': _collectorUid,
-        'paymentMethod': 'Efectivo',
+        'paymentMethod': selectedMethod.label,
         'receiptNumber': 'RC-${paymentId.substring(0, 5)}',
         'notes': '',
       });
@@ -1253,6 +1367,18 @@ class _CobrosScreenState extends State<CobrosScreen> {
               officeId: _officeId,
               clientId: creditData['clientId'],
               creditId: creditData['creditId'],
+              onPaymentDeleted: () async {
+                // Esta función se llamará cuando se elimine un pago
+                if (mounted) {
+                  await _loadActiveCredits();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Datos actualizados'),
+                      duration: Duration(seconds: 1),
+                    ),
+                  );
+                }
+              },
             ),
       ),
     );
