@@ -190,11 +190,6 @@ class _CobrosScreenState extends State<CobrosScreen> {
               onPressed: _saveCreditOrder,
               tooltip: 'Guardar orden',
             ),
-          IconButton(
-            icon: const Icon(Icons.credit_card_off),
-            onPressed: () => _navigateToInactiveCredits(context),
-            tooltip: 'Ver créditos cerrados',
-          ),
         ],
       ),
       body:
@@ -513,8 +508,9 @@ class _CobrosScreenState extends State<CobrosScreen> {
     final cuotasRestantes = cuot - cuotasPagadas;
     final progress = cuot > 0 ? cuotasPagadas / cuot : 0;
 
-    // Calcular fechas
+    // Calcular fechas - Versión mejorada para coincidir con CreditDetailScreen
     DateTime? fechaFinal;
+    DateTime? proximaCuota;
     DateTime? lastPaymentDate = creditData['lastPaymentDate']?.toDate();
     DateTime? createdAt = creditData['createdAt']?.toDate();
 
@@ -530,7 +526,15 @@ class _CobrosScreenState extends State<CobrosScreen> {
         _ => 1,
       };
 
-      fechaFinal = lastPaymentDate.add(Duration(days: cuot * diasEntreCuotas));
+      // Primero calculamos la próxima cuota
+      proximaCuota = lastPaymentDate.add(Duration(days: diasEntreCuotas));
+
+      // Luego calculamos la fecha final basada en las cuotas restantes
+      if (cuotasRestantes > 0) {
+        fechaFinal = proximaCuota.add(Duration(days: (cuotasRestantes - 1) * diasEntreCuotas));
+      } else {
+        fechaFinal = lastPaymentDate;
+      }
     }
 
     return {
@@ -541,8 +545,8 @@ class _CobrosScreenState extends State<CobrosScreen> {
       'cuotasRestantes': cuotasRestantes,
       'totalCuotas': cuot,
       'fechaFinal': fechaFinal,
+      'proximaCuota': proximaCuota, // Nuevo campo agregado
       'progress': progress,
-      // Incluir el total pagado calculado
     };
   }
 
@@ -1189,26 +1193,36 @@ class _CobrosScreenState extends State<CobrosScreen> {
     final now = DateTime.now();
     int daysOverdue = 0;
     DateTime? nextPaymentDate;
-    int? nextPaymentIndex;
     double? nextPaymentAmount;
     String overdueStatus = 'al día';
 
     try {
-      final paymentSchedule =
-          (creditData['paymentSchedule'] as List?)
-              ?.map((date) => date is Timestamp ? date.toDate() : DateTime.parse(date.toString()))
-              .toList() ??
-          [];
-
-      nextPaymentIndex = (creditData['nextPaymentIndex'] as int?) ?? 0;
       final creditAmount = (creditData['credit'] ?? 0).toDouble();
       final interestPercent = (creditData['interest'] ?? 0).toDouble();
       final totalCreditValue = creditAmount + (creditAmount * interestPercent / 100);
       final numberOfCuotas = (creditData['cuot'] ?? 1).toDouble();
+      final method = creditData['method'] ?? 'Diario';
+
+      // Calcular valor de la cuota
       nextPaymentAmount = totalCreditValue / numberOfCuotas;
 
-      if (nextPaymentIndex < paymentSchedule.length) {
-        nextPaymentDate = paymentSchedule[nextPaymentIndex];
+      // Obtener última fecha de pago o fecha de creación
+      DateTime? lastPaymentDate = creditData['lastPaymentDate']?.toDate();
+      if (lastPaymentDate == null) {
+        lastPaymentDate = creditData['createdAt']?.toDate();
+      }
+
+      if (lastPaymentDate != null) {
+        final diasEntreCuotas = switch (method) {
+          'Semanal' => 7,
+          'Quincenal' => 15,
+          'Mensual' => 30,
+          _ => 1,
+        };
+
+        // Calcular próxima cuota (misma lógica que CreditDetailScreen)
+        nextPaymentDate = lastPaymentDate.add(Duration(days: diasEntreCuotas));
+
         if (now.isAfter(nextPaymentDate)) {
           daysOverdue = now.difference(nextPaymentDate).inDays;
           overdueStatus = _getOverdueStatus(daysOverdue);
@@ -1223,7 +1237,6 @@ class _CobrosScreenState extends State<CobrosScreen> {
     return {
       'daysOverdue': daysOverdue,
       'nextPaymentDate': nextPaymentDate,
-      'nextPaymentIndex': nextPaymentIndex,
       'nextPaymentAmount': nextPaymentAmount,
       'status': overdueStatus,
     };
@@ -1293,11 +1306,11 @@ class _CobrosScreenState extends State<CobrosScreen> {
           if (nextPaymentDate != null) ...[
             const SizedBox(height: 4),
             Text(
-              DateFormat('dd/MM/yy').format(nextPaymentDate),
+              'Próx: ${DateFormat('dd/MM').format(nextPaymentDate)}',
               style: TextStyle(fontSize: 10, color: _getStatusColor(status)),
             ),
           ],
-          if (nextPaymentAmount != null && status == 'próximo') ...[
+          if (nextPaymentAmount != null) ...[
             const SizedBox(height: 4),
             Text(
               '\$${nextPaymentAmount.toStringAsFixed(0)}',

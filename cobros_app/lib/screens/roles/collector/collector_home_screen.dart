@@ -31,6 +31,20 @@ class _CollectorHomeScreenState extends State<CollectorHomeScreen> {
   int _completedPaymentsToday = 0;
   double _totalExpectedAmountToday = 0;
   double _remainingAmountToday = 0;
+  bool _isDisposed = false; // ← Controla si el widget fue eliminado
+  List<Future> _pendingFutures = []; // ← Guarda operaciones asíncronas pendientes
+
+  @override
+  void dispose() {
+    _isDisposed = true; // ← Marca como eliminado
+    _pendingFutures.clear(); // ← Cancela futuros pendientes
+    super.dispose();
+  }
+
+  Future<void> _safeSetState(Function() updateFn) async {
+    if (!mounted || _isDisposed) return; // ← No actualizar si no está activo
+    setState(updateFn);
+  }
 
   @override
   void initState() {
@@ -38,7 +52,12 @@ class _CollectorHomeScreenState extends State<CollectorHomeScreen> {
     final now = DateTime.now();
     _currentWeekRange = _getCurrentWeekRange(now);
     _currentMonthRange = _getCurrentMonthRange(now);
-    _loadCollectorData();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _loadCollectorData();
+      }
+    });
   }
 
   DateTimeRange _getCurrentWeekRange(DateTime date) {
@@ -54,7 +73,9 @@ class _CollectorHomeScreenState extends State<CollectorHomeScreen> {
   }
 
   Future<void> _loadCollectorData() async {
-    setState(() {
+    if (_isDisposed) return;
+
+    await _safeSetState(() {
       _isLoading = true;
       _errorMessage = null;
     });
@@ -67,7 +88,9 @@ class _CollectorHomeScreenState extends State<CollectorHomeScreen> {
       if (!userDoc.exists) throw Exception('Usuario no encontrado');
 
       final userData = userDoc.data();
-      _collectorName = userData?['displayName'] ?? 'Cobrador';
+      await _safeSetState(() {
+        _collectorName = userData?['displayName'] ?? 'Cobrador';
+      });
 
       final clientsSnapshot =
           await _firestore
@@ -80,14 +103,20 @@ class _CollectorHomeScreenState extends State<CollectorHomeScreen> {
         throw Exception('No tienes clientes asignados');
       }
 
-      _officeId = clientsSnapshot.docs.first['officeId'];
-      await _loadPaymentsData(user.uid);
-
-      setState(() {
-        _isLoading = false;
+      await _safeSetState(() {
+        _officeId = clientsSnapshot.docs.first['officeId'];
       });
+
+      final future = _loadPaymentsData(user.uid);
+      _pendingFutures.add(future);
+      await future;
+      _pendingFutures.remove(future);
+
+      await _safeSetState(() => _isLoading = false);
     } catch (e) {
-      setState(() {
+      if (!mounted || _isDisposed) return;
+      debugPrint('Error loading collector data: $e');
+      await _safeSetState(() {
         _isLoading = false;
         _errorMessage = e.toString();
       });
@@ -95,10 +124,13 @@ class _CollectorHomeScreenState extends State<CollectorHomeScreen> {
   }
 
   Future<void> _loadPaymentsData(String collectorId) async {
+    // 1. Verificar si el widget sigue activo
+    if (!mounted || _isDisposed) return;
+
     final today = DateTime.now();
     final todayFormatted = DateFormat('yyyy-MM-dd').format(today);
 
-    // Resetear valores
+    // 2. Variables locales para cálculos (evitamos setState innecesarios)
     double todayTotal = 0;
     int todayCount = 0;
     int totalExpected = 0;
@@ -110,63 +142,79 @@ class _CollectorHomeScreenState extends State<CollectorHomeScreen> {
     final recentPayments = <Map<String, dynamic>>[];
     final upcomingPayments = <Map<String, dynamic>>[];
 
-    final clientsQuery =
-        await _firestore
-            .collectionGroup('clients')
-            .where('createdBy', isEqualTo: collectorId)
-            .get();
+    try {
+      // 3. Obtener clientes con verificación de mounted
+      if (!mounted || _isDisposed) return;
+      final clientsQuery =
+          await _firestore
+              .collectionGroup('clients')
+              .where('createdBy', isEqualTo: collectorId)
+              .get();
 
-    // Primero recolectar todos los pagos de hoy
-    final paymentsToday = <String, Map<String, dynamic>>{};
+      // 4. Procesar cada cliente
+      for (final clientDoc in clientsQuery.docs) {
+        if (!mounted || _isDisposed) return;
 
-    for (final clientDoc in clientsQuery.docs) {
-      final clientData = clientDoc.data();
-      final creditsQuery =
-          await clientDoc.reference.collection('credits').where('isActive', isEqualTo: true).get();
-
-      for (final creditDoc in creditsQuery.docs) {
-        final creditData = creditDoc.data();
-
-        // 1. Procesar pagos existentes de hoy
-        final paymentsQuery =
-            await creditDoc.reference
-                .collection('payments')
-                .where('date', isGreaterThanOrEqualTo: DateTime(today.year, today.month, today.day))
-                .where('date', isLessThan: DateTime(today.year, today.month, today.day + 1))
+        final clientData = clientDoc.data();
+        final creditsQuery =
+            await clientDoc.reference
+                .collection('credits')
+                .where('isActive', isEqualTo: true)
                 .get();
 
-        for (final paymentDoc in paymentsQuery.docs) {
-          final paymentData = paymentDoc.data();
-          final amount = (paymentData['amount'] as num).toDouble();
+        // 5. Procesar cada crédito
+        for (final creditDoc in creditsQuery.docs) {
+          if (!mounted || _isDisposed) return;
 
-          paymentsToday[creditDoc.id] = paymentData;
-          todayTotal += amount;
-          todayCount++;
-          completedPayments++;
+          final creditData = creditDoc.data();
+          final method = creditData['method'] ?? 'Diario';
+          final diasEntreCuotas = _getDiasEntreCuotas(method);
 
-          recentPayments.add({
-            ...paymentData,
-            'clientName': clientData['clientName'],
-            'date': paymentData['date'].toDate(),
-            'amount': amount,
-          });
-        }
+          // Calcular valor de la cuota
+          final creditAmount = (creditData['credit'] ?? 0).toDouble();
+          final interestPercent = (creditData['interest'] ?? 0).toDouble();
+          final totalCreditValue = creditAmount + (creditAmount * interestPercent / 100);
+          final cuot = (creditData['cuot'] ?? 1).toInt();
+          final paymentValue = totalCreditValue / cuot;
 
-        // 2. Buscar próximos vencimientos (incluyendo los de hoy)
-        if (creditData['paymentSchedule'] != null) {
-          final paymentSchedule = List<String>.from(creditData['paymentSchedule']);
-          final nextPaymentIndex = creditData['nextPaymentIndex'] ?? 0;
+          // 6. Obtener pagos de hoy
+          final paymentsQuery =
+              await creditDoc.reference
+                  .collection('payments')
+                  .where(
+                    'date',
+                    isGreaterThanOrEqualTo: DateTime(today.year, today.month, today.day),
+                  )
+                  .where('date', isLessThan: DateTime(today.year, today.month, today.day + 1))
+                  .get();
 
-          if (nextPaymentIndex < paymentSchedule.length) {
-            final nextPaymentDateStr = paymentSchedule[nextPaymentIndex];
-            final nextPaymentDate = DateTime.parse(nextPaymentDateStr);
+          for (final paymentDoc in paymentsQuery.docs) {
+            final paymentData = paymentDoc.data();
+            final amount = (paymentData['amount'] ?? 0).toDouble();
+
+            todayTotal += amount;
+            todayCount++;
+            completedPayments++;
+
+            recentPayments.add({
+              ...paymentData,
+              'clientName': clientData['clientName'],
+              'date': paymentData['date'].toDate(),
+              'amount': amount,
+            });
+          }
+
+          // 7. Calcular próximos vencimientos
+          DateTime? lastPaymentDate = creditData['lastPaymentDate']?.toDate();
+          if (lastPaymentDate == null) {
+            lastPaymentDate = creditData['createdAt']?.toDate();
+          }
+
+          if (lastPaymentDate != null) {
+            final nextPaymentDate = lastPaymentDate.add(Duration(days: diasEntreCuotas));
             final daysUntilDue = nextPaymentDate.difference(today).inDays;
 
             if (daysUntilDue <= 7) {
-              // Mostrar solo vencimientos en los próximos 7 días
-              final paymentValue =
-                  (creditData['credit'] * (1 + creditData['interest'] / 100)) / creditData['cuot'];
-
               upcomingPayments.add({
                 'clientName': clientData['clientName'],
                 'dueDate': nextPaymentDate,
@@ -177,73 +225,82 @@ class _CollectorHomeScreenState extends State<CollectorHomeScreen> {
                 'isOverdue': daysUntilDue < 0,
               });
 
-              if (daysUntilDue < 0) {
-                overdueCount++;
-              }
+              if (daysUntilDue < 0) overdueCount++;
 
-              // 3. Calcular pagos esperados para hoy (excluyendo los ya pagados)
+              // 8. Verificar pagos esperados para hoy
               final isDueToday = DateFormat('yyyy-MM-dd').format(nextPaymentDate) == todayFormatted;
-              if (isDueToday && !paymentsToday.containsKey(creditDoc.id)) {
+              if (isDueToday && !paymentsQuery.docs.any((p) => p.id == creditDoc.id)) {
                 totalExpected++;
                 totalExpectedAmount += paymentValue;
               }
             }
           }
-        }
 
-        // 4. Calcular totales semanales y mensuales (pagos existentes)
-        final allPaymentsQuery =
-            await creditDoc.reference
-                .collection('payments')
-                .orderBy('date', descending: true)
-                .limit(30)
-                .get();
+          // 9. Calcular totales semanales/mensuales
+          final allPaymentsQuery =
+              await creditDoc.reference
+                  .collection('payments')
+                  .orderBy('date', descending: true)
+                  .limit(30)
+                  .get();
 
-        for (final paymentDoc in allPaymentsQuery.docs) {
-          final paymentData = paymentDoc.data();
-          final paymentDate = paymentData['date'].toDate();
-          final amount = (paymentData['amount'] as num).toDouble();
+          for (final paymentDoc in allPaymentsQuery.docs) {
+            final paymentData = paymentDoc.data();
+            final paymentDate = paymentData['date'].toDate();
+            final amount = (paymentData['amount'] ?? 0).toDouble();
 
-          if (_currentWeekRange!.start.isBefore(paymentDate) &&
-              _currentWeekRange!.end.isAfter(paymentDate)) {
-            weeklyTotal += amount;
-          }
+            if (_currentWeekRange!.start.isBefore(paymentDate) &&
+                _currentWeekRange!.end.isAfter(paymentDate)) {
+              weeklyTotal += amount;
+            }
 
-          if (_currentMonthRange!.start.isBefore(paymentDate) &&
-              _currentMonthRange!.end.isAfter(paymentDate)) {
-            monthlyTotal += amount;
+            if (_currentMonthRange!.start.isBefore(paymentDate) &&
+                _currentMonthRange!.end.isAfter(paymentDate)) {
+              monthlyTotal += amount;
+            }
           }
         }
       }
+
+      // 10. Calcular montos pendientes
+      final remainingAmount =
+          (totalExpectedAmount - todayTotal).clamp(0, double.infinity).toDouble();
+
+      // 11. Ordenar resultados
+      upcomingPayments.sort((a, b) => a['daysUntilDue'].compareTo(b['daysUntilDue']));
+      recentPayments.sort((a, b) => b['date'].compareTo(a['date']));
+
+      // 12. Actualización final segura
+      await _safeSetState(() {
+        _todayTotal = todayTotal;
+        _todayPaymentsCount = todayCount;
+        _weeklyTotal = weeklyTotal;
+        _monthlyTotal = monthlyTotal;
+        _recentPayments = recentPayments.take(10).toList();
+        _upcomingPayments = upcomingPayments;
+        _overduePaymentsCount = overdueCount;
+        _totalExpectedPaymentsToday = totalExpected;
+        _completedPaymentsToday = completedPayments;
+        _totalExpectedAmountToday = totalExpectedAmount + todayTotal;
+        _remainingAmountToday = remainingAmount;
+      });
+    } catch (e) {
+      debugPrint('Error en _loadPaymentsData: $e');
+      if (!mounted || _isDisposed) return;
+      await _safeSetState(() {
+        _errorMessage = 'Error al cargar pagos: ${e.toString()}';
+      });
     }
+  }
 
-    // Calcular montos pendientes
-    final remainingAmount =
-        totalExpectedAmount - todayTotal > 0 ? (totalExpectedAmount - todayTotal).toDouble() : 0.0;
-
-    // Ordenar vencimientos
-    upcomingPayments.sort((a, b) {
-      if (a['isOverdue'] && !b['isOverdue']) return -1;
-      if (!a['isOverdue'] && b['isOverdue']) return 1;
-      return a['daysUntilDue'].compareTo(b['daysUntilDue']);
-    });
-
-    // Ordenar pagos recientes
-    recentPayments.sort((a, b) => b['date'].compareTo(a['date']));
-
-    setState(() {
-      _todayTotal = todayTotal;
-      _todayPaymentsCount = todayCount;
-      _weeklyTotal = weeklyTotal;
-      _monthlyTotal = monthlyTotal;
-      _recentPayments = recentPayments.take(10).toList();
-      _upcomingPayments = upcomingPayments;
-      _overduePaymentsCount = overdueCount;
-      _totalExpectedPaymentsToday = totalExpected;
-      _completedPaymentsToday = completedPayments;
-      _totalExpectedAmountToday = totalExpectedAmount + todayTotal;
-      _remainingAmountToday = remainingAmount;
-    });
+  // Función auxiliar para obtener días entre cuotas
+  int _getDiasEntreCuotas(String method) {
+    return switch (method) {
+      'Semanal' => 7,
+      'Quincenal' => 15,
+      'Mensual' => 30,
+      _ => 1,
+    };
   }
 
   @override

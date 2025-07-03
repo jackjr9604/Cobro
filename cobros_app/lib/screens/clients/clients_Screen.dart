@@ -4,7 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/services.dart';
 import '../clients/client_form_screen.dart';
 import '../clients/edit_client.dart';
-import '../credits/client_credits_screen.dart';
+import 'credits/client_credits_screen.dart';
 import '../../utils/office_verification_mixin.dart';
 import 'package:url_launcher/url_launcher.dart';
 

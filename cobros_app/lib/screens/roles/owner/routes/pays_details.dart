@@ -2,6 +2,71 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+class CreditCalculator {
+  static int getDiasEntreCuotas(String method) {
+    return switch (method) {
+      'Semanal' => 7,
+      'Quincenal' => 15,
+      'Mensual' => 30,
+      _ => 1, // Diario por defecto
+    };
+  }
+
+  static double calcularValorCuota(double capital, double interes, int cuotas) {
+    return (capital * (1 + interes / 100)) / cuotas;
+  }
+
+  static DateTime? calcularProximaCuota(DateTime? ultimoPago, String metodoPago) {
+    if (ultimoPago == null) return null;
+    return ultimoPago.add(Duration(days: getDiasEntreCuotas(metodoPago)));
+  }
+
+  static DateTime? calcularFechaFinal(
+    DateTime? ultimoPago,
+    String metodoPago,
+    int cuotasRestantes,
+  ) {
+    final proximaCuota = calcularProximaCuota(ultimoPago, metodoPago);
+    if (proximaCuota == null || cuotasRestantes <= 0) return null;
+
+    final diasEntreCuotas = getDiasEntreCuotas(metodoPago);
+    return proximaCuota.add(Duration(days: (cuotasRestantes - 1) * diasEntreCuotas));
+  }
+
+  static Map<String, dynamic> calcularInfoCredito({
+    required double capital,
+    required double interes,
+    required int cuotasTotales,
+    required String metodoPago,
+    required int cuotasPagadas,
+    required DateTime? ultimoPago,
+    required DateTime? fechaCreacion,
+  }) {
+    final valorTotal = capital * (1 + interes / 100);
+    final cuotasRestantes = cuotasTotales - cuotasPagadas;
+    final valorCuota = calcularValorCuota(capital, interes, cuotasTotales);
+    final totalPagado = valorCuota * cuotasPagadas;
+    final saldoRestante = valorTotal - totalPagado;
+
+    final fechaUltimoPago = ultimoPago ?? fechaCreacion;
+    final proximaCuota = calcularProximaCuota(fechaUltimoPago, metodoPago);
+    final fechaFinal = calcularFechaFinal(fechaUltimoPago, metodoPago, cuotasRestantes);
+
+    return {
+      'valorTotal': valorTotal,
+      'valorCuota': valorCuota,
+      'totalPagado': totalPagado,
+      'saldoRestante': saldoRestante,
+      'cuotasTotales': cuotasTotales,
+      'cuotasPagadas': cuotasPagadas,
+      'cuotasRestantes': cuotasRestantes,
+      'proximaCuota': proximaCuota,
+      'fechaFinal': fechaFinal,
+      'diasEntreCuotas': getDiasEntreCuotas(metodoPago),
+    };
+  }
+}
+
 class PaysDetails extends StatelessWidget {
   final String userId;
   final String officeId;
@@ -117,8 +182,6 @@ class PaysDetails extends StatelessWidget {
         final interest = (creditData['interest'] ?? 0).toDouble();
         final cuot = (creditData['cuot'] ?? 1).toInt();
         final method = creditData['method'] ?? 'Diario';
-        final total = creditValue + (creditValue * interest / 100);
-        final cuota = total / cuot;
         final methodColor = _getMethodColor(method);
         final methodIcon = _getMethodIcon(method);
 
@@ -131,57 +194,22 @@ class PaysDetails extends StatelessWidget {
 
             final payments = paymentsSnapshot.data!.docs;
             final cuotasPagadas = payments.length;
-            final cuotasRestantes = cuot - cuotasPagadas;
 
-            final totalPagado = payments.fold(0.0, (sum, doc) {
-              final data = doc.data() as Map<String, dynamic>;
-              final amount = data['amount'];
-              if (amount is int) return sum + amount.toDouble();
-              if (amount is double) return sum + amount;
-              if (amount is String) return sum + (double.tryParse(amount) ?? 0.0);
-              return sum;
-            });
-
-            final totalPendiente = total - totalPagado;
-
-            // Cálculo de fechas (mantener igual)
-            DateTime? lastPaymentDate;
-            if (payments.isNotEmpty) {
-              lastPaymentDate = (payments.last['date'] as Timestamp).toDate();
-            } else {
-              lastPaymentDate = creditData['createdAt']?.toDate();
-            }
-
-            DateTime? proximaCuota;
-            switch (method) {
-              case 'Diario':
-                proximaCuota = lastPaymentDate?.add(const Duration(days: 1));
-                break;
-              case 'Semanal':
-                proximaCuota = lastPaymentDate?.add(const Duration(days: 7));
-                break;
-              case 'Quincenal':
-                proximaCuota = lastPaymentDate?.add(const Duration(days: 15));
-                break;
-              case 'Mensual':
-                proximaCuota = DateTime(
-                  lastPaymentDate!.year,
-                  lastPaymentDate.month + 1,
-                  lastPaymentDate.day,
-                );
-                break;
-            }
-
-            final diasEntreCuotas = switch (method) {
-              'Semanal' => 7,
-              'Quincenal' => 15,
-              'Mensual' => 30,
-              _ => 1,
-            };
-
-            final fechaFinal = proximaCuota?.add(
-              Duration(days: (cuotasRestantes - 1) * diasEntreCuotas),
+            // Usar CreditCalculator para cálculos consistentes
+            final creditInfo = CreditCalculator.calcularInfoCredito(
+              capital: creditValue,
+              interes: interest,
+              cuotasTotales: cuot,
+              metodoPago: method,
+              cuotasPagadas: cuotasPagadas,
+              ultimoPago:
+                  payments.isNotEmpty
+                      ? (payments.last['date'] as Timestamp).toDate()
+                      : creditData['createdAt']?.toDate(),
+              fechaCreacion: creditData['createdAt']?.toDate(),
             );
+
+            final formatCurrency = NumberFormat('#,##0', 'es_CO');
 
             return StreamBuilder<DocumentSnapshot>(
               stream: clientRef.snapshots(),
@@ -191,7 +219,6 @@ class PaysDetails extends StatelessWidget {
                 }
 
                 final client = clientSnapshot.data!.data() as Map<String, dynamic>;
-                final formatCurrency = NumberFormat('#,##0', 'es_CO');
 
                 return Scaffold(
                   appBar: AppBar(
@@ -202,7 +229,7 @@ class PaysDetails extends StatelessWidget {
                     padding: const EdgeInsets.all(16),
                     child: Column(
                       children: [
-                        // Información del cliente
+                        // Información del cliente (se mantiene igual)
                         _buildInfoCard('📋 Información del Cliente', [
                           _buildInfoRow('Nombre', client['clientName'] ?? 'No especificado'),
                           _buildInfoRow('Celular', client['cellphone'] ?? 'No especificado'),
@@ -211,7 +238,7 @@ class PaysDetails extends StatelessWidget {
                             _buildInfoRow('Dirección', client['address']!),
                         ]),
 
-                        // Resumen del crédito
+                        // Resumen del crédito (actualizado)
                         _buildInfoCard('💰 Resumen del Crédito', [
                           Row(
                             children: [
@@ -228,10 +255,16 @@ class PaysDetails extends StatelessWidget {
                             'Valor del crédito',
                             '\$${formatCurrency.format(creditValue)}',
                           ),
-                          _buildInfoRow('Interés', '${interest.toStringAsFixed(2)}%'),
-                          _buildInfoRow('Total a pagar', '\$${formatCurrency.format(total)}'),
+                          _buildInfoRow('Interés', '${interest.toStringAsFixed(0)}%'),
+                          _buildInfoRow(
+                            'Total a pagar',
+                            '\$${formatCurrency.format(creditInfo['valorTotal'])}',
+                          ),
                           _buildInfoRow('Cuotas', '$cuot'),
-                          _buildInfoRow('Valor cuota', '\$${cuota.toStringAsFixed(0)}'),
+                          _buildInfoRow(
+                            'Valor cuota',
+                            '\$${formatCurrency.format(creditInfo['valorCuota'])}',
+                          ),
                           const Divider(height: 16),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -241,7 +274,7 @@ class PaysDetails extends StatelessWidget {
                                 children: [
                                   Text('Pagado', style: TextStyle(color: Colors.grey[600])),
                                   Text(
-                                    '\$${formatCurrency.format(totalPagado)}',
+                                    '\$${formatCurrency.format(creditInfo['totalPagado'])}',
                                     style: const TextStyle(
                                       fontWeight: FontWeight.bold,
                                       color: Colors.green,
@@ -254,10 +287,13 @@ class PaysDetails extends StatelessWidget {
                                 children: [
                                   Text('Pendiente', style: TextStyle(color: Colors.grey[600])),
                                   Text(
-                                    '\$${formatCurrency.format(totalPendiente)}',
+                                    '\$${formatCurrency.format(creditInfo['saldoRestante'])}',
                                     style: TextStyle(
                                       fontWeight: FontWeight.bold,
-                                      color: totalPendiente > 0 ? Colors.red : Colors.green,
+                                      color:
+                                          creditInfo['saldoRestante'] > 0
+                                              ? Colors.red
+                                              : Colors.green,
                                     ),
                                   ),
                                 ],
@@ -266,7 +302,7 @@ class PaysDetails extends StatelessWidget {
                           ),
                         ]),
 
-                        // Progreso del pago
+                        // Progreso del pago (actualizado)
                         Card(
                           elevation: 2,
                           margin: const EdgeInsets.only(bottom: 16),
@@ -285,7 +321,7 @@ class PaysDetails extends StatelessWidget {
                                 ),
                                 const SizedBox(height: 12),
                                 LinearProgressIndicator(
-                                  value: cuotasPagadas / cuot,
+                                  value: creditInfo['cuotasPagadas'] / creditInfo['cuotasTotales'],
                                   backgroundColor: Colors.grey[200],
                                   color: Theme.of(context).primaryColor,
                                   minHeight: 10,
@@ -295,11 +331,11 @@ class PaysDetails extends StatelessWidget {
                                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                   children: [
                                     Text(
-                                      'Cuotas pagadas: $cuotasPagadas/$cuot',
+                                      'Cuotas pagadas: ${creditInfo['cuotasPagadas']}/${creditInfo['cuotasTotales']}',
                                       style: const TextStyle(fontWeight: FontWeight.bold),
                                     ),
                                     Text(
-                                      '${((cuotasPagadas / cuot) * 100).toStringAsFixed(0)}%',
+                                      '${((creditInfo['cuotasPagadas'] / creditInfo['cuotasTotales']) * 100).toStringAsFixed(0)}%',
                                       style: const TextStyle(fontWeight: FontWeight.bold),
                                     ),
                                   ],
@@ -309,22 +345,26 @@ class PaysDetails extends StatelessWidget {
                           ),
                         ),
 
-                        // Próximos pagos
+                        // Próximos pagos (actualizado)
                         _buildInfoCard('📅 Próximos pagos', [
-                          if (proximaCuota != null)
+                          if (creditInfo['proximaCuota'] != null)
                             _buildInfoRow(
                               'Próxima cuota',
-                              DateFormat.yMMMMd('es_CO').format(proximaCuota),
+                              DateFormat.yMMMMd(
+                                'es_CO',
+                              ).format(creditInfo['proximaCuota'] as DateTime),
                             ),
-                          if (fechaFinal != null)
+                          if (creditInfo['fechaFinal'] != null)
                             _buildInfoRow(
                               'Fecha final estimada',
-                              DateFormat.yMMMMd('es_CO').format(fechaFinal),
+                              DateFormat.yMMMMd(
+                                'es_CO',
+                              ).format(creditInfo['fechaFinal'] as DateTime),
                             ),
-                          _buildInfoRow('Cuotas restantes', '$cuotasRestantes'),
+                          _buildInfoRow('Cuotas restantes', '${creditInfo['cuotasRestantes']}'),
                         ]),
 
-                        // Pagos realizados
+                        // Pagos realizados (se mantiene igual)
                         Card(
                           elevation: 2,
                           child: Padding(
@@ -375,6 +415,17 @@ class PaysDetails extends StatelessWidget {
                                       title: Text(
                                         '\$${formatCurrency.format(amount)}',
                                         style: const TextStyle(fontWeight: FontWeight.bold),
+                                      ),
+                                      subtitle: Text(DateFormat('dd/MM/yyyy').format(date)),
+                                      trailing: IconButton(
+                                        icon: const Icon(Icons.more_vert),
+                                        onPressed:
+                                            () => _showPaymentOptions(
+                                              context,
+                                              creditRef,
+                                              paymentDoc.id,
+                                              amount,
+                                            ),
                                       ),
                                     ),
                                   );

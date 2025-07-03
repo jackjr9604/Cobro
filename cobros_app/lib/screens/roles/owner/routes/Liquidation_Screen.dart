@@ -177,6 +177,8 @@ class _CollectorLiquidationScreenState extends State<CollectorLiquidationScreen>
 
       for (var clientDoc in clientsQuery.docs) {
         final clientData = clientDoc.data();
+        final clientName = clientData['clientName'] ?? 'Cliente desconocido'; // Obtener nombre aquí
+
         final creditsSnapshot =
             await clientDoc.reference
                 .collection('credits')
@@ -198,7 +200,7 @@ class _CollectorLiquidationScreenState extends State<CollectorLiquidationScreen>
             if (DateFormat('yyyy-MM-dd').format(paymentDate.toDate()) ==
                 DateFormat('yyyy-MM-dd').format(selectedDate!)) {
               fetchedPayments.add({
-                'clientName': clientData['name'] ?? 'Sin nombre', // Usar solo 'name'
+                'clientName': clientName, // Usamos el nombre obtenido del documento del cliente
                 'amount': paymentData['amount'],
                 'date': paymentDate.toDate(),
                 'creditId': creditDoc.id,
@@ -628,10 +630,20 @@ class _CollectorLiquidationScreenState extends State<CollectorLiquidationScreen>
                 child: Row(
                   children: [
                     const SizedBox(width: 12),
+
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          Text(
+                            p['clientName'] ?? 'Cliente desconocido',
+                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Método: ${p['paymentData']['paymentMethod'] ?? 'No especificado'}',
+                            style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                          ),
                           Text(
                             DateFormat('h:mm a', 'es').format(p['date']),
                             style: TextStyle(fontSize: 12, color: Colors.grey[600]),

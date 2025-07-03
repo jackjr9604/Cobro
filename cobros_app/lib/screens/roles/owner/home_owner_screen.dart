@@ -27,15 +27,35 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
   double _dailyCollection = 0;
   String? _officeId;
   bool _isUserActive = false;
+  bool _isDisposed = false;
+  List<Future> _pendingFutures = [];
+
+  @override
+  void dispose() {
+    _isDisposed = true; // ← Marca como eliminado
+    _pendingFutures.clear(); // ← Cancela futuros pendientes
+    super.dispose();
+  }
+
+  Future<void> _safeSetState(Function() updateFn) async {
+    if (!mounted || _isDisposed) return; // ← No actualizar si no está activo
+    setState(updateFn);
+  }
 
   @override
   void initState() {
     super.initState();
-    _checkUserStatus().then((_) {
-      if (_isUserActive) {
-        _loadDashboardData().then((_) => _calculateDailyCollection());
-      } else {
-        setState(() => _isLoading = false);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        // ← Verificar si el widget sigue montado
+        _checkUserStatus().then((_) {
+          if (_isUserActive && mounted) {
+            // ← Doble verificación
+            _loadDashboardData();
+          } else if (mounted) {
+            _safeSetState(() => _isLoading = false);
+          }
+        });
       }
     });
   }
@@ -43,14 +63,14 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
   Future<void> _checkUserStatus() async {
     final user = _auth.currentUser;
     if (user == null) {
-      setState(() => _isUserActive = false);
+      await _safeSetState(() => _isUserActive = false);
       return;
     }
 
     try {
       final userDoc = await _firestore.collection('users').doc(user.uid).get();
       if (!userDoc.exists) {
-        setState(() => _isUserActive = false);
+        await _safeSetState(() => _isUserActive = false);
         return;
       }
 
@@ -58,24 +78,27 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
       final activeStatus = userData['activeStatus'] as Map<String, dynamic>?;
       final isActive = activeStatus?['isActive'] ?? false;
 
-      setState(() => _isUserActive = isActive);
+      await _safeSetState(() => _isUserActive = isActive);
     } catch (e) {
       debugPrint('Error checking user status: $e');
-      setState(() => _isUserActive = false);
+      await _safeSetState(() => _isUserActive = false);
     }
   }
 
   Future<void> _loadDashboardData() async {
-    setState(() => _isLoading = true);
-    final user = _auth.currentUser;
-    if (user == null) return;
+    if (_isDisposed) return;
+
+    await _safeSetState(() => _isLoading = true);
 
     try {
+      final user = _auth.currentUser;
+      if (user == null) return;
+
       // 1. Obtener datos del usuario
       final userDoc = await _firestore.collection('users').doc(user.uid).get();
       final userData = userDoc.data();
       if (userData == null) {
-        setState(() => _isLoading = false);
+        await _safeSetState(() => _isLoading = false);
         return;
       }
 
@@ -84,7 +107,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
           await _firestore.collection('users').doc(user.uid).collection('offices').limit(1).get();
 
       if (officesQuery.docs.isEmpty) {
-        setState(() {
+        await _safeSetState(() {
           _isLoading = false;
           _officeData = null;
         });
@@ -92,7 +115,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
       }
 
       final officeDoc = officesQuery.docs.first;
-      setState(() {
+      await _safeSetState(() {
         _officeId = officeDoc.id;
         _officeData = officeDoc.data();
       });
@@ -108,7 +131,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
               .where('activeStatus.isActive', isEqualTo: true)
               .get();
 
-      setState(() {
+      await _safeSetState(() {
         _collectors =
             collectorsQuery.docs.map((doc) {
               final data = doc.data();
@@ -180,7 +203,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
               .get();
 
       // 7. Actualizar el estado con todos los datos
-      setState(() {
+      await _safeSetState(() {
         _collectedThisMonth = monthlyTotal;
         _activeCredits = activeCredits;
         _totalBalance = totalCollected;
@@ -197,21 +220,38 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
       await _calculateDailyCollection();
     } catch (e) {
       debugPrint('Error loading dashboard data: $e');
-      setState(() => _isLoading = false);
+      await _safeSetState(() => _isLoading = false);
     }
   }
 
   Future<void> _calculateDailyCollection() async {
-    if (_officeId == null || _auth.currentUser == null) return;
+    // 1. Verificar condiciones iniciales y si el widget sigue activo
+    if (_officeId == null || _auth.currentUser == null || _isDisposed) {
+      return;
+    }
 
+    // 2. Registrar esta operación para posible cancelación
+    final future = _executeDailyCollectionCalculation();
+    _pendingFutures.add(future);
+
+    try {
+      await future;
+    } finally {
+      _pendingFutures.remove(future);
+    }
+  }
+
+  Future<void> _executeDailyCollectionCalculation() async {
     final today = DateTime.now();
     final todayStart = DateTime(today.year, today.month, today.day);
     final todayEnd = todayStart.add(const Duration(days: 1));
+    final todayKey = DateFormat('yyyy-MM-dd').format(today);
 
     try {
       double dailyTotal = 0;
 
-      // Obtener todos los clientes
+      // 3. Obtener clientes (con verificación de mounted)
+      if (!mounted || _isDisposed) return;
       final clientsQuery =
           await _firestore
               .collection('users')
@@ -221,12 +261,15 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
               .collection('clients')
               .get();
 
-      // Procesar cada cliente
-      for (var clientDoc in clientsQuery.docs) {
+      // 4. Procesar cada cliente y sus pagos
+      for (final clientDoc in clientsQuery.docs) {
+        if (!mounted || _isDisposed) return;
+
         final creditsQuery = await clientDoc.reference.collection('credits').get();
 
-        // Procesar cada crédito
-        for (var creditDoc in creditsQuery.docs) {
+        for (final creditDoc in creditsQuery.docs) {
+          if (!mounted || _isDisposed) return;
+
           final paymentsQuery =
               await creditDoc.reference
                   .collection('payments')
@@ -234,20 +277,20 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
                   .where('date', isLessThan: Timestamp.fromDate(todayEnd))
                   .get();
 
-          // Sumar los pagos de hoy
-          for (var paymentDoc in paymentsQuery.docs) {
+          for (final paymentDoc in paymentsQuery.docs) {
             final paymentData = paymentDoc.data();
             dailyTotal += (paymentData['amount'] ?? 0).toDouble();
           }
         }
       }
 
-      setState(() {
+      // 5. Actualizar estado de forma segura
+      await _safeSetState(() {
         _dailyCollection = dailyTotal;
       });
 
-      // Guardar para consultas futuras
-      final todayKey = DateFormat('yyyy-MM-dd').format(today);
+      // 6. Guardar en Firestore (si aún estamos activos)
+      if (!mounted || _isDisposed) return;
       await _firestore
           .collection('users')
           .doc(_auth.currentUser!.uid)
@@ -263,8 +306,9 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
           }, SetOptions(merge: true));
     } catch (e) {
       debugPrint('Error calculando recaudo diario: $e');
-      // Intentar obtener el valor guardado
-      final todayKey = DateFormat('yyyy-MM-dd').format(today);
+
+      // 7. Intentar recuperar el valor guardado si hay error
+      if (!mounted || _isDisposed) return;
       final doc =
           await _firestore
               .collection('users')
@@ -275,7 +319,7 @@ class _OwnerDashboardScreenState extends State<OwnerDashboardScreen> {
               .doc(todayKey)
               .get();
 
-      setState(() {
+      await _safeSetState(() {
         _dailyCollection = (doc.data()?['total'] ?? 0).toDouble();
       });
     }

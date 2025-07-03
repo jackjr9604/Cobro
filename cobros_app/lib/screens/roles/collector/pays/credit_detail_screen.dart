@@ -1,7 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:path/path.dart';
 
 enum PaymentMethod {
   cash('Efectivo'),
@@ -25,7 +24,7 @@ class CreditDetailScreen extends StatelessWidget {
     required this.officeId,
     required this.clientId,
     required this.creditId,
-    this.onPaymentDeleted, // Nuevo parámetro
+    this.onPaymentDeleted,
   });
 
   @override
@@ -149,7 +148,7 @@ class CreditDetailScreen extends StatelessWidget {
                               isAmount: true,
                               valueColor: Colors.blue,
                             ),
-                            _buildInfoRow('Interés', '${interest.toStringAsFixed(2)}%'),
+                            _buildInfoRow('Interés', '${interest.toStringAsFixed(0)}%'),
                             _buildInfoRow(
                               'Total a pagar',
                               '\$${NumberFormat('#,##0', 'es_CO').format(total)}',
@@ -157,7 +156,7 @@ class CreditDetailScreen extends StatelessWidget {
                               valueColor: Colors.blue,
                             ),
                             _buildInfoRow(
-                              'total pagado',
+                              'Total pagado',
                               '\$${NumberFormat('#,##0', 'es_CO').format(totalPagado)}',
                               isAmount: true,
                               valueColor: Colors.green,

@@ -4,6 +4,71 @@ import 'create_credit_screen.dart';
 import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+class CreditCalculator {
+  static int getDiasEntreCuotas(String method) {
+    return switch (method) {
+      'Semanal' => 7,
+      'Quincenal' => 15,
+      'Mensual' => 30,
+      _ => 1, // Diario por defecto
+    };
+  }
+
+  static double calcularValorCuota(double capital, double interes, int cuotas) {
+    return (capital * (1 + interes / 100)) / cuotas;
+  }
+
+  static DateTime? calcularProximaCuota(DateTime? ultimoPago, String metodoPago) {
+    if (ultimoPago == null) return null;
+    return ultimoPago.add(Duration(days: getDiasEntreCuotas(metodoPago)));
+  }
+
+  static DateTime? calcularFechaFinal(
+    DateTime? ultimoPago,
+    String metodoPago,
+    int cuotasRestantes,
+  ) {
+    final proximaCuota = calcularProximaCuota(ultimoPago, metodoPago);
+    if (proximaCuota == null || cuotasRestantes <= 0) return null;
+
+    final diasEntreCuotas = getDiasEntreCuotas(metodoPago);
+    return proximaCuota.add(Duration(days: (cuotasRestantes - 1) * diasEntreCuotas));
+  }
+
+  static Map<String, dynamic> calcularInfoCredito({
+    required double capital,
+    required double interes,
+    required int cuotasTotales,
+    required String metodoPago,
+    required int cuotasPagadas,
+    required DateTime? ultimoPago,
+    required DateTime? fechaCreacion,
+  }) {
+    final valorTotal = capital * (1 + interes / 100);
+    final cuotasRestantes = cuotasTotales - cuotasPagadas;
+    final valorCuota = calcularValorCuota(capital, interes, cuotasTotales);
+    final totalPagado = valorCuota * cuotasPagadas;
+    final saldoRestante = valorTotal - totalPagado;
+
+    final fechaUltimoPago = ultimoPago ?? fechaCreacion;
+    final proximaCuota = calcularProximaCuota(fechaUltimoPago, metodoPago);
+    final fechaFinal = calcularFechaFinal(fechaUltimoPago, metodoPago, cuotasRestantes);
+
+    return {
+      'valorTotal': valorTotal,
+      'valorCuota': valorCuota,
+      'totalPagado': totalPagado,
+      'saldoRestante': saldoRestante,
+      'cuotasTotales': cuotasTotales,
+      'cuotasPagadas': cuotasPagadas,
+      'cuotasRestantes': cuotasRestantes,
+      'proximaCuota': proximaCuota,
+      'fechaFinal': fechaFinal,
+      'diasEntreCuotas': getDiasEntreCuotas(metodoPago),
+    };
+  }
+}
+
 class ClientCreditsScreen extends StatefulWidget {
   final String clientId;
   final String clientName;
@@ -135,12 +200,17 @@ class _ClientCreditsScreenState extends State<ClientCreditsScreen> {
     final data = credit.data() as Map<String, dynamic>;
     final isActive = data['isActive'] ?? false;
     final createdAt = data['createdAt']?.toDate();
-    final nextPaymentIndex = data['nextPaymentIndex'] ?? 0;
-    final paymentSchedule = List<String>.from(data['paymentSchedule'] ?? []);
-    final nextPaymentDate =
-        paymentSchedule.isNotEmpty && nextPaymentIndex < paymentSchedule.length
-            ? DateTime.parse(paymentSchedule[nextPaymentIndex])
-            : null;
+
+    // Calcular información del crédito usando CreditCalculator
+    final creditInfo = CreditCalculator.calcularInfoCredito(
+      capital: (data['credit'] ?? 0).toDouble(),
+      interes: (data['interest'] ?? 0).toDouble(),
+      cuotasTotales: (data['cuot'] ?? 1).toInt(),
+      metodoPago: data['method'] ?? 'Diario',
+      cuotasPagadas: (data['nextPaymentIndex'] ?? 0).toInt(),
+      ultimoPago: data['lastPaymentDate']?.toDate(),
+      fechaCreacion: createdAt,
+    );
 
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
@@ -191,35 +261,41 @@ class _ClientCreditsScreenState extends State<ClientCreditsScreen> {
               const SizedBox(height: 12),
               _buildCreditInfoRow(
                 'Valor del crédito:',
-                '\$${NumberFormat('#,##0').format(data['credit'])}',
+                '\$${NumberFormat('#,##0').format(creditInfo['valorTotal'])}',
                 Icons.attach_money,
                 Colors.blue,
               ),
               _buildCreditInfoRow(
                 'Interés:',
-                '${data['interest']}% (Acumulado: \$${NumberFormat('#,##0').format(data['accumulatedInterest'] ?? 0)})',
+                '${data['interest']}% (Total: \$${NumberFormat('#,##0').format(creditInfo['valorTotal'] - (data['credit'] ?? 0))})',
                 Icons.percent,
                 Colors.orange,
               ),
               _buildCreditInfoRow(
                 'Cuotas:',
-                '${data['cuot']} (${data['method']})',
+                '${data['cuot']} (${data['method']}) - \$${NumberFormat('#,##0').format(creditInfo['valorCuota'])} c/u',
                 Icons.calendar_view_week,
                 Colors.purple,
               ),
-              if (nextPaymentDate != null) ...[
+              if (creditInfo['proximaCuota'] != null) ...[
                 _buildCreditInfoRow(
                   'Próximo pago:',
-                  DateFormat('dd/MM/yyyy').format(nextPaymentDate),
+                  DateFormat('dd/MM/yyyy').format(creditInfo['proximaCuota'] as DateTime),
                   Icons.event_available,
                   Colors.green,
                 ),
               ],
               _buildCreditInfoRow(
                 'Total pagado:',
-                '\$${NumberFormat('#,##0').format(data['totalPaid'] ?? 0)}',
+                '\$${NumberFormat('#,##0').format(creditInfo['totalPagado'])}',
                 Icons.payment,
                 Colors.teal,
+              ),
+              _buildCreditInfoRow(
+                'Saldo restante:',
+                '\$${NumberFormat('#,##0').format(creditInfo['saldoRestante'])}',
+                Icons.account_balance_wallet,
+                creditInfo['saldoRestante'] > 0 ? Colors.red : Colors.green,
               ),
               if (createdAt != null) ...[
                 const Divider(height: 24),
@@ -237,19 +313,29 @@ class _ClientCreditsScreenState extends State<ClientCreditsScreen> {
               if (data['isActive'] == true) ...[
                 const SizedBox(height: 12),
                 LinearProgressIndicator(
-                  value: (data['totalPaid'] ?? 0) / (data['credit'] ?? 1),
+                  value: creditInfo['totalPagado'] / creditInfo['valorTotal'],
                   backgroundColor: Colors.grey[200],
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.green[400]!),
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    creditInfo['saldoRestante'] <= 0 ? Colors.green[400]! : Colors.blue[400]!,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Progreso: ${(data['totalPaid'] ?? 0) / (data['credit'] ?? 1) * 100}%',
+                  'Progreso: ${(creditInfo['totalPagado'] / creditInfo['valorTotal'] * 100).toStringAsFixed(1)}% '
+                  '(${creditInfo['cuotasPagadas']}/${creditInfo['cuotasTotales']} cuotas)',
                   style: TextStyle(
                     fontSize: 12,
                     color: Colors.grey[600],
                     fontWeight: FontWeight.bold,
                   ),
                 ),
+                if (creditInfo['fechaFinal'] != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    'Fecha final estimada: ${DateFormat('dd/MM/yyyy').format(creditInfo['fechaFinal'] as DateTime)}',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  ),
+                ],
               ],
               const SizedBox(height: 12),
               Row(
