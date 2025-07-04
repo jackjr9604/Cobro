@@ -6,12 +6,10 @@ import 'dart:math' as math;
 import '../../../../utils/app_theme.dart';
 
 class LiquidationReportScreen extends StatefulWidget {
-  final String officeId; // Añadir esta propiedad
+  final String officeId;
+  final bool isCollector;
 
-  const LiquidationReportScreen({
-    super.key,
-    required this.officeId, // Hacerla requerida
-  });
+  const LiquidationReportScreen({super.key, required this.officeId, this.isCollector = false});
 
   @override
   State<LiquidationReportScreen> createState() => _LiquidationReportScreenState();
@@ -41,6 +39,7 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
   // Para el filtro por cobrador con autocompletado
   String? _selectedCollector;
   List<String> _collectors = [];
+  String? _currentCollectorName;
 
   int? _sortColumnIndex;
   bool _sortAscending = true;
@@ -63,16 +62,74 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
     }
 
     try {
-      // 1. Construir consulta base con la nueva estructura
-      Query query = FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .collection('offices')
-          .doc(widget.officeId)
-          .collection('liquidations')
-          .orderBy('date', descending: true);
+      // 1. Para collector, primero necesitamos encontrar la oficina del owner que lo creó
+      String? ownerUid;
+      String? officePath;
 
-      // 2. Aplicar filtros de fecha si existen
+      if (widget.isCollector) {
+        // Buscar el owner que creó este collector
+        final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+
+        if (userDoc.exists) {
+          ownerUid = userDoc['createdBy'];
+
+          // Buscar la oficina del owner donde está asignado este collector
+          final officesQuery =
+              await FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(ownerUid)
+                  .collection('offices')
+                  .limit(1)
+                  .get();
+
+          if (officesQuery.docs.isNotEmpty) {
+            officePath = 'users/$ownerUid/offices/${officesQuery.docs.first.id}';
+          }
+        }
+      }
+
+      // 2. Construir consulta base
+      Query query;
+
+      if (widget.isCollector && ownerUid != null) {
+        // Para collector, primero obtener el officeId del owner
+        final officesSnapshot =
+            await FirebaseFirestore.instance
+                .collection('users')
+                .doc(ownerUid)
+                .collection('offices')
+                .limit(1)
+                .get();
+
+        if (officesSnapshot.docs.isNotEmpty) {
+          final officeId = officesSnapshot.docs.first.id;
+
+          // Consulta para collector - solo sus liquidaciones
+          query = FirebaseFirestore.instance
+              .collection('users')
+              .doc(ownerUid)
+              .collection('offices')
+              .doc(officeId)
+              .collection('liquidations')
+              .where('collectorId', isEqualTo: user.uid)
+              .orderBy('date', descending: true);
+        } else {
+          // No se encontró oficina
+          setState(() => _isLoading = false);
+          return;
+        }
+      } else {
+        // Consulta original para owner
+        query = FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .collection('offices')
+            .doc(widget.officeId)
+            .collection('liquidations')
+            .orderBy('date', descending: true);
+      }
+
+      // 3. Aplicar filtros de fecha si existen
       if (startDate != null && endDate != null) {
         final start = DateTime(startDate!.year, startDate!.month, startDate!.day);
         final end = DateTime(endDate!.year, endDate!.month, endDate!.day + 1);
@@ -81,20 +138,22 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
             .where('date', isLessThan: Timestamp.fromDate(end));
       }
 
-      // 3. Ejecutar consulta
+      // 4. Ejecutar consulta
       final snapshot = await query.get();
 
       setState(() {
         liquidations = snapshot.docs;
 
-        // Obtener lista única de cobradores
-        final collectorsSet = <String>{};
-        for (var doc in liquidations) {
-          final data = doc.data() as Map<String, dynamic>;
-          final collectorName = data['collectorName']?.toString() ?? '';
-          if (collectorName.isNotEmpty) collectorsSet.add(collectorName);
+        // Obtener lista única de cobradores (solo para owner)
+        if (!widget.isCollector) {
+          final collectorsSet = <String>{};
+          for (var doc in liquidations) {
+            final data = doc.data() as Map<String, dynamic>;
+            final collectorName = data['collectorName']?.toString() ?? '';
+            if (collectorName.isNotEmpty) collectorsSet.add(collectorName);
+          }
+          _collectors = collectorsSet.toList()..sort();
         }
-        _collectors = collectorsSet.toList()..sort();
 
         _applyFilters();
         _isLoading = false;
@@ -294,14 +353,40 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
   void initState() {
     super.initState();
     final today = DateTime.now();
-    startDate = DateTime(today.year, today.month, today.day); // inicio del día hoy
-    endDate = DateTime(
-      today.year,
-      today.month,
-      today.day,
-    ); // fin del día hoy (igual, se sumará +1 en el query)
-    _fetchLiquidations();
+    startDate = DateTime(today.year, today.month, today.day);
+    endDate = DateTime(today.year, today.month, today.day);
 
+    // Si es collector, obtener su nombre primero
+    if (widget.isCollector) {
+      _getCurrentCollectorName().then((_) {
+        _fetchLiquidations();
+      });
+    } else {
+      _fetchLiquidations();
+    }
+
+    _initializeColumns();
+  }
+
+  Future<void> _getCurrentCollectorName() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      final userDoc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+
+      if (userDoc.exists) {
+        setState(() {
+          _currentCollectorName = userDoc['name'];
+          _selectedCollector = _currentCollectorName; // Auto-seleccionar su nombre
+        });
+      }
+    } catch (e) {
+      print('Error al obtener nombre del collector: $e');
+    }
+  }
+
+  void _initializeColumns() {
     allColumns = [
       ColumnDefinition(
         key: 'date',
@@ -309,12 +394,13 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
         numeric: false,
         getValue: (d) => (d['date'] as Timestamp).toDate(),
       ),
-      ColumnDefinition(
-        key: 'collectorName',
-        label: 'Cobrador',
-        numeric: false,
-        getValue: (d) => d['collectorName'] ?? '',
-      ),
+      if (!widget.isCollector) // Solo mostrar columna de cobrador si no es collector
+        ColumnDefinition(
+          key: 'collectorName',
+          label: 'Cobrador',
+          numeric: false,
+          getValue: (d) => d['collectorName'] ?? '',
+        ),
       ColumnDefinition(
         key: 'totalCollected',
         label: 'Recaudado',
@@ -394,7 +480,7 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
     // Columnas visibles por defecto
     visibleColumnsKeys = {
       'date',
-      'collectorName',
+      if (!widget.isCollector) 'collectorName',
       'totalCollected',
       'discountTotal',
       'netTotal',
@@ -532,12 +618,13 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
       appBar: AppBar(
         title: const Text('Reporte de Liquidaciones'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.view_column),
-            color: AppTheme.neutroColor,
-            tooltip: 'Seleccionar columnas',
-            onPressed: _showColumnSelectionDialog,
-          ),
+          if (!widget.isCollector)
+            IconButton(
+              icon: const Icon(Icons.view_column),
+              color: AppTheme.neutroColor,
+              tooltip: 'Seleccionar columnas',
+              onPressed: _showColumnSelectionDialog,
+            ),
           ElevatedButton.icon(
             onPressed: () async {
               final picked = await showDateRangePicker(
@@ -586,43 +673,44 @@ class _LiquidationReportScreenState extends State<LiquidationReportScreen> {
       ),
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-            child: Row(
-              children: [
-                const Text('Filtrar por cobrador: '),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Autocomplete<String>(
-                    optionsBuilder: (TextEditingValue textEditingValue) {
-                      return _collectors.where((String option) {
-                        return option.toLowerCase().contains(textEditingValue.text.toLowerCase());
-                      });
-                    },
-                    onSelected: (String selection) {
-                      setState(() {
-                        _selectedCollector = selection;
-                      });
-                      _applyFilters();
-                    },
-                    fieldViewBuilder: (context, controller, focusNode, onEditingComplete) {
-                      controller.text = _selectedCollector ?? '';
-                      return TextField(
-                        controller: controller,
-                        focusNode: focusNode,
-                        onEditingComplete: onEditingComplete,
-                        decoration: const InputDecoration(
-                          hintText: 'Escribe un nombre',
-                          border: OutlineInputBorder(),
-                          contentPadding: EdgeInsets.symmetric(horizontal: 8.0),
-                        ),
-                      );
-                    },
+          if (!widget.isCollector)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+              child: Row(
+                children: [
+                  const Text('Filtrar por cobrador: '),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Autocomplete<String>(
+                      optionsBuilder: (TextEditingValue textEditingValue) {
+                        return _collectors.where((String option) {
+                          return option.toLowerCase().contains(textEditingValue.text.toLowerCase());
+                        });
+                      },
+                      onSelected: (String selection) {
+                        setState(() {
+                          _selectedCollector = selection;
+                        });
+                        _applyFilters();
+                      },
+                      fieldViewBuilder: (context, controller, focusNode, onEditingComplete) {
+                        controller.text = _selectedCollector ?? '';
+                        return TextField(
+                          controller: controller,
+                          focusNode: focusNode,
+                          onEditingComplete: onEditingComplete,
+                          decoration: const InputDecoration(
+                            hintText: 'Escribe un nombre',
+                            border: OutlineInputBorder(),
+                            contentPadding: EdgeInsets.symmetric(horizontal: 8.0),
+                          ),
+                        );
+                      },
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
 
           if (startDate != null && endDate != null)
             Padding(

@@ -171,7 +171,7 @@ class _MainScreenState extends State<MainScreen> {
           const ClientsScreen(),
           const RoutesScreen(),
           officeId != null
-              ? LiquidationReportScreen(officeId: officeId)
+              ? LiquidationReportScreen(officeId: officeId, isCollector: false)
               : const Center(child: Text('No tiene oficina asignada')),
           const MembershipScreen(),
         ];
@@ -182,6 +182,10 @@ class _MainScreenState extends State<MainScreen> {
           officeId != null
               ? CobrosScreen()
               : const Center(child: Text('No tiene oficina asignada')),
+          LiquidationReportScreen(
+            officeId: '', // No es necesario para collector
+            isCollector: true,
+          ),
         ];
       default:
         return [const HomeScreen()];
@@ -278,6 +282,13 @@ class _MainScreenState extends State<MainScreen> {
           selected: _selectedIndex == 2,
           selectedTileColor: Colors.blue[100],
           onTap: () => _updateIndex(2, context),
+        ),
+        ListTile(
+          leading: const Icon(Icons.report),
+          title: const Text('Mis liquidaciones'),
+          selected: _selectedIndex == 3,
+          selectedTileColor: Colors.blue[100],
+          onTap: () => _updateIndex(3, context),
         ),
       ]);
     }
